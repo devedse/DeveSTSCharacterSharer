@@ -14,7 +14,7 @@ rem            nopause   don't wait 5 seconds at the end
 rem ==========================================================================
 
 set "SERVER=__SERVER_URL__"
-set "MARKER=.character-sync"
+set "MARKER=__MARKER__"
 set "CURL=%SystemRoot%\System32\curl.exe"
 set "TAR=%SystemRoot%\System32\tar.exe"
 set "WORK=%TEMP%\sts-character-sync"

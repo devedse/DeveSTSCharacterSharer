@@ -2,8 +2,9 @@
 
 A small Blazor Server app for sharing Slay the Spire 2 character mods with friends.
 
-- **Upload**: drag a `.zip`, `.7z` or `.rar` onto the page. It's uploaded right away (no confirm
-  step), only the mod folder is kept, and it replaces the previous version of that character.
+- **Upload**: drag a `.zip`, `.7z` or `.rar`, or a folder, onto the page. It's uploaded right away
+  (no confirm step), only the mod folder is kept, and it replaces the previous version of that
+  character.
 - **Download**: everyone grabs one `sts-character-sync.cmd`, drops it in their
   `Slay the Spire 2\mods` folder and double-clicks it. It downloads only the characters that changed
   since the last run.
@@ -71,6 +72,11 @@ only `Yugi/` is kept and everything else is thrown away. Some details:
 - If the mod files sit loose at the top of the archive, only the `Yugi.*` files are kept.
 - An archive containing several mods (say a character plus `BaseLib`) adds or updates each of them.
 - A zip inside a zip is opened when the outer archive has no mod of its own.
+- Folders can be dropped too: one character's folder, or your whole `mods` folder to add or update
+  every character in it. The browser packs a dropped folder into a tar (without copying the files
+  into memory) and uploads that. The sync script's hidden `.character-sync` files and
+  `desktop.ini`/`Thumbs.db`/`.DS_Store` are never stored, so a folder that is already in sync counts
+  as unchanged.
 - Re-uploading the same build is reported as "already up to date" and doesn't make anyone download
   it again. The version is compared by a hash of the files' contents, not by file dates.
 - Version, author and description shown on the page come from the mod's own json.

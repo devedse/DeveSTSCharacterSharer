@@ -17,6 +17,11 @@ public static class ModArchive
     private static readonly string[] ArchiveExtensions = [".zip", ".7z", ".rar", ".tar", ".gz", ".tgz", ".xz", ".bz2"];
     private static readonly string[] ModFileExtensions = [".dll", ".pck"];
 
+    // Never stored: they'd change the content hash without changing the mod, making everyone download
+    // it again. Uploading a folder from someone's mods/ includes the sync script's marker files.
+    private static readonly HashSet<string> IgnoredFileNames =
+        new([SyncScript.MarkerFileName, "desktop.ini", "Thumbs.db", ".DS_Store"], StringComparer.OrdinalIgnoreCase);
+
     private sealed record FoundMod(string Name, string Directory, bool IsRoot);
 
     /// <summary>Extracts every mod in the archive to stagingDir/&lt;Name&gt;/ and returns their names.</summary>
@@ -232,7 +237,7 @@ public static class ModArchive
 
         private void Add(IEntry entry)
         {
-            if (!entry.IsDirectory && entry.LinkTarget == null && NormalizePath(entry.Key) is { } path)
+            if (!entry.IsDirectory && entry.LinkTarget == null && NormalizePath(entry.Key) is { } path && !IgnoredFileNames.Contains(path[(path.LastIndexOf('/') + 1)..]))
             {
                 Files.TryAdd(path, entry);
             }

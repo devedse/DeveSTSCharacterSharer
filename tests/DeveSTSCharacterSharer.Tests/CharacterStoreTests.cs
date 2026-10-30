@@ -151,6 +151,32 @@ public sealed class CharacterStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task DroppedModsFolder_ImportsEveryMod_WithoutSyncMarkersOrOsJunk()
+    {
+        // What the browser sends for a dropped folder: a GNU tar, long paths as LongLink entries.
+        await Upload(MakeZip(ModFiles("Yugi", "0.3.0", prefix: "Yugi/")));
+        var longFolder = "mods/" + new string('x', 120) + "/";
+        var entries = ModFiles("Yugi", "0.3.0", prefix: "mods/Yugi/")
+            .Concat(ModFiles("BaseLib", prefix: longFolder + "BaseLib/"))
+            .Append(new("mods/Yugi/.character-sync", "1734cba28f12"u8.ToArray()))
+            .Append(new("mods/Yugi/desktop.ini", "[.ShellClassInfo]"u8.ToArray()));
+        var path = Path.Combine(_root, "mods (folder)");
+        await using (var file = File.Create(path))
+        await using (var tar = new TarWriter(file, TarEntryFormat.Gnu))
+        {
+            foreach (var (name, data) in entries)
+            {
+                await tar.WriteEntryAsync(new GnuTarEntry(TarEntryType.RegularFile, name) { DataStream = new MemoryStream(data) });
+            }
+        }
+
+        var results = await Upload(path);
+
+        Assert.Equal([("BaseLib", ImportStatus.Added), ("Yugi", ImportStatus.Unchanged)], results.Select(r => (r.Name, r.Status)).Order());
+        Assert.Equal(["Yugi.dll", "Yugi.json", "Yugi.pck"], StoredFiles("Yugi"));
+    }
+
+    [Fact]
     public async Task ZipInsideZip()
     {
         var inner = MakeZip(ModFiles("BrewmasterPanda", prefix: "BrewmasterPanda/"));

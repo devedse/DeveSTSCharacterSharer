@@ -24,8 +24,8 @@
     <label class="dropzone">
         <InputFile OnChange="OnFilesChosen" multiple class="sr-only" />
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0-4 4m4-4 4 4" /><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /></svg>
-        <span class="dz-title">Drop <b>.zip</b>, <b>.7z</b> or <b>.rar</b> here</span>
-        <span class="dz-sub">or click to choose files. Only the mod folder is kept (e.g. <code>Yugi/</code> with the .dll, .json and .pck).</span>
+        <span class="dz-title">Drop <b>.zip</b>, <b>.7z</b>, <b>.rar</b> or a <b>folder</b> here</span>
+        <span class="dz-sub">or click to choose files. Only the mod folder is kept (e.g. <code>Yugi/</code> with the .dll, .json and .pck). Drop your whole <code>mods</code> folder to share every character in it.</span>
     </label>
 
     @if (_uploads.Count > 0)
@@ -177,7 +177,7 @@
         {
             if (file.Size == 0)
             {
-                throw new UploadException("The file is empty. If you dropped a folder, zip it first.");
+                throw new UploadException("The file is empty.");
             }
             if (file.Size > Options.MaxUploadBytes)
             {

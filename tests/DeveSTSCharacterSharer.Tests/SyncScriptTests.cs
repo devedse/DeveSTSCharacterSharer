@@ -21,7 +21,8 @@ public class SyncScriptTests
         var script = Encoding.ASCII.GetString(new SyncScript().Render("http://192.168.1.10:8080"));
 
         Assert.Contains("set \"SERVER=http://192.168.1.10:8080\"\r\n", script);
-        Assert.DoesNotContain("__SERVER_URL__", script);
+        Assert.Contains($"set \"MARKER={SyncScript.MarkerFileName}\"\r\n", script);
+        Assert.DoesNotContain("__", script);
         Assert.DoesNotMatch("[^\r]\n", script);
         Assert.StartsWith("@echo off\r\n", script);
     }
