@@ -68,7 +68,8 @@ public static partial class ModPortrait
     /// <summary>
     /// A Godot 4 CompressedTexture2D (.ctex) starts with "GST2". At byte 36 is how the image is stored
     /// (1 = PNG, 2 = WebP; others are GPU formats a browser can't show), at byte 52 the size of the
-    /// full-size image, which follows right after.
+    /// full-size image, which follows right after. Godot itself puts a "PNG " or "WEBP" tag in front
+    /// of the image; some mod packers write the bare image.
     /// </summary>
     private static PortraitImage? FromCompressedTexture(byte[] ctex)
     {
@@ -82,8 +83,13 @@ public static partial class ModPortrait
         {
             return null;
         }
-        var image = ctex.AsSpan(56, (int)size).ToArray();
-        return Recognize(image) is { } extension ? new PortraitImage(image, extension) : null;
+        var image = ctex.AsSpan(56, (int)size);
+        if (image.StartsWith("PNG "u8) || image.StartsWith("WEBP"u8))
+        {
+            image = image[4..];
+        }
+        var bytes = image.ToArray();
+        return Recognize(bytes) is { } extension ? new PortraitImage(bytes, extension) : null;
     }
 
     private static string? Recognize(byte[] data) => data switch

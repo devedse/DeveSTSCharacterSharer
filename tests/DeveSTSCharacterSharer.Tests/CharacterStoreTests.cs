@@ -222,6 +222,25 @@ public sealed class CharacterStoreTests : IDisposable
         Assert.Equal(WebP, await File.ReadAllBytesAsync(character.PortraitPath!));
     }
 
+    [Theory]
+    [InlineData(1u, "PNG ", ".png")]
+    [InlineData(2u, "WEBP", ".webp")]
+    public async Task Portrait_FromATextureWrittenByGodotItself(uint dataFormat, string tag, string extension)
+    {
+        // Like TheJester's pck: Godot puts a "PNG " or "WEBP" tag in front of the image in a .ctex.
+        var image = dataFormat == 1 ? Png : WebP;
+        var pck = PckBuilder.Build(2, new Dictionary<string, byte[]>
+        {
+            ["res://images/packed/portraits/thejester_portrait.png.import"] = Encoding.UTF8.GetBytes(PckBuilder.Import(".godot/imported/thejester_portrait.png-cf.ctex")),
+            ["res://.godot/imported/thejester_portrait.png-cf.ctex"] = PckBuilder.Ctex(dataFormat, [.. Encoding.ASCII.GetBytes(tag), .. image]),
+        });
+
+        var character = await UploadWithPck("TheJester", pck);
+
+        Assert.Equal(extension, Path.GetExtension(character.PortraitPath));
+        Assert.Equal(image, await File.ReadAllBytesAsync(character.PortraitPath!));
+    }
+
     [Fact]
     public async Task Portrait_FallsBackToTheHudIcon_AndSkipsGpuTextures()
     {
