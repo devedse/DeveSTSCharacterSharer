@@ -7,14 +7,27 @@ namespace DeveSTSCharacterSharer.Services;
 public sealed record PortraitImage(byte[] Data, string Extension);
 
 /// <summary>
-/// Finds the character's portrait inside a mod's .pck. Character mods keep their art at
-/// images/packed/portraits/&lt;id&gt;_&lt;slot&gt;.png: portrait (the square head shot), hud_icon,
-/// char_select, map_marker, creature (full body), bg, ...
+/// Finds the character's portrait inside a mod's .pck. Depending on how the mod was made, the
+/// character's pictures are in different places:
+/// <list type="bullet">
+/// <item>STS2 Character Creator and character kit: images/packed/portraits/&lt;id&gt;_portrait.png,
+/// next to _hud_icon, _char_select, _map_marker, _creature (full body), _bg, ...</item>
+/// <item>BaseLib mod template: &lt;Mod&gt;/images/charui/character_icon.png, next to map_marker,
+/// char_select_bg, ...</item>
+/// </list>
 /// </summary>
 public static partial class ModPortrait
 {
-    // Best first. The portrait is usually the same picture as the HUD icon and map marker.
-    private static readonly string[] Slots = ["portrait", "hud_icon", "char_select", "map_marker"];
+    // Best first. In both layouts the portrait/icon is a square head shot.
+    private static readonly Regex[] Candidates =
+    [
+        new(@"^images/packed/portraits/[^/]+_portrait\.png$"),
+        new(@"(^|/)images/charui/character_icon(_(?!outline)[^/]*)?\.png$"),
+        new(@"^images/packed/portraits/[^/]+_hud_icon\.png$"),
+        new(@"^images/packed/portraits/[^/]+_char_select\.png$"),
+        new(@"^images/packed/portraits/[^/]+_map_marker\.png$"),
+        new(@"(^|/)images/charui/map_marker\.png$"),
+    ];
 
     public static PortraitImage? Find(string modFolder, string name)
     {
@@ -27,14 +40,18 @@ public static partial class ModPortrait
             {
                 continue;
             }
-            foreach (var slot in Slots)
+            // Images are found by their .png path; the pack may only hold its .import file.
+            var images = pck.Paths
+                .Select(p => p.EndsWith(".import", StringComparison.Ordinal) ? p[..^7] : p)
+                .Where(p => p.EndsWith(".png", StringComparison.Ordinal))
+                .Distinct()
+                .ToList();
+            foreach (var candidate in Candidates)
             {
-                var sources = pck.Paths
-                    .Select(p => p.EndsWith(".import", StringComparison.Ordinal) ? p[..^7] : p)
-                    .Where(p => p.StartsWith("images/packed/portraits/", StringComparison.Ordinal) && p.EndsWith($"_{slot}.png", StringComparison.Ordinal))
-                    .Distinct()
+                var sources = images
+                    .Where(p => candidate.IsMatch(p))
                     // A pack can hold several characters; prefer the one named like the mod.
-                    .OrderBy(p => Path.GetFileName(p).Equals($"{name}_{slot}.png", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                    .OrderBy(p => p.Contains(name, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                     .ThenBy(p => p, StringComparer.Ordinal);
                 foreach (var source in sources)
                 {

@@ -80,11 +80,12 @@ only `Yugi/` is kept and everything else is thrown away. Some details:
 - Re-uploading the same build is reported as "already up to date" and doesn't make anyone download
   it again. The version is compared by a hash of the files' contents, not by file dates.
 - Version, author and description shown on the page come from the mod's own json.
-- The portrait on the page comes from the mod's `.pck` (a Godot resource pack):
-  `images/packed/portraits/<id>_portrait.png`, or else the HUD icon, character select or map
-  marker image there. Packs either contain the original PNG or only Godot's compiled `.ctex`
-  texture; both work (the image inside a `.ctex` is a PNG or WebP). Characters without one show
-  their initial.
+- The portrait on the page comes from the mod's `.pck` (a Godot resource pack). Mods made with the
+  STS2 Character Creator or character kit have it at `images/packed/portraits/<id>_portrait.png`,
+  mods made from the BaseLib template at `<Mod>/images/charui/character_icon.png`; when those are
+  missing the HUD icon, character select or map marker image is used. Packs either contain the
+  original PNG or only Godot's compiled `.ctex` texture; both work (the image inside a `.ctex` is
+  a PNG or WebP). Characters without one show their initial.
 
 Supported formats: zip, 7z, rar (v4 and v5), tar, tar.gz/bz2/xz (via
 [SharpCompress](https://github.com/adamhathcock/sharpcompress)). Password protected archives are

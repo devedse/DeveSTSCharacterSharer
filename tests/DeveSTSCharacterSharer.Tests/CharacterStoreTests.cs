@@ -242,6 +242,26 @@ public sealed class CharacterStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Portrait_IsTheCharacterIcon_InModsMadeFromTheBaseLibTemplate()
+    {
+        // Like DentataGuttur and TaurenChieftain: <Mod>/images/charui/, only .import + .ctex.
+        var files = new Dictionary<string, byte[]>();
+        void AddTexture(string path, byte[] image)
+        {
+            var ctex = $".godot/imported/{Path.GetFileName(path)}-{files.Count}.ctex";
+            files[path + ".import"] = Encoding.UTF8.GetBytes(PckBuilder.Import(ctex));
+            files[ctex] = PckBuilder.Ctex(2, [.. "WEBP"u8, .. image]);
+        }
+        AddTexture("DentataGuttur/images/charui/character_icon_outline.png", [.. WebP, 1]);
+        AddTexture("DentataGuttur/images/charui/map_marker.png", [.. WebP, 2]);
+        AddTexture("DentataGuttur/images/charui/character_icon.png", WebP);
+
+        var character = await UploadWithPck("DentataGuttur", PckBuilder.Build(3, files));
+
+        Assert.Equal(WebP, await File.ReadAllBytesAsync(character.PortraitPath!));
+    }
+
+    [Fact]
     public async Task Portrait_FallsBackToTheHudIcon_AndSkipsGpuTextures()
     {
         var pck = PckBuilder.Build(3, new Dictionary<string, byte[]>
