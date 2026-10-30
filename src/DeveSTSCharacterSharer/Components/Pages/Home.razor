@@ -76,16 +76,30 @@
                 {
                     <article @key="c.Name" class="card character @(_flash.Contains(c.Name) ? "flash" : null)">
                         <div class="top">
-                            <h3>@c.Name</h3>
-                            @if (c.Version != null)
-                            {
-                                <span class="pill" title="@c.Version">@c.Version</span>
-                            }
+                            <div class="avatar">
+                                @if (c.PortraitPath != null)
+                                {
+                                    <img src="api/portrait/@(Uri.EscapeDataString(c.Name))?v=@c.Hash[..12]" alt="" loading="lazy" />
+                                }
+                                else
+                                {
+                                    <span>@c.Name[..1]</span>
+                                }
+                            </div>
+                            <div class="heading">
+                                <div class="title-row">
+                                    <h3>@c.Name</h3>
+                                    @if (c.Version != null)
+                                    {
+                                        <span class="pill" title="@c.Version">@c.Version</span>
+                                    }
+                                </div>
+                                @if (c.Author != null)
+                                {
+                                    <div class="author">by @c.Author</div>
+                                }
+                            </div>
                         </div>
-                        @if (c.Author != null)
-                        {
-                            <div class="author">by @c.Author</div>
-                        }
                         @if (c.Description != null)
                         {
                             <p class="desc" title="@c.Description">@c.Description</p>

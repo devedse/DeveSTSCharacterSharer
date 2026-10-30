@@ -28,6 +28,18 @@ public static class SharerApi
                 : Results.Text("Not found", statusCode: 404);
         });
 
+        // The page adds ?v=<hash> to the URL, so a new version is never served from a stale cache.
+        app.MapGet("/api/portrait/{name}", (string name, HttpContext context, CharacterStore store) =>
+        {
+            if (store.Get(name)?.PortraitPath is not { } path)
+            {
+                return Results.Text("Not found", statusCode: 404);
+            }
+            context.Response.Headers.CacheControl = "public, max-age=86400";
+            context.Response.Headers.XContentTypeOptions = "nosniff";
+            return Results.File(path, path.EndsWith(".webp", StringComparison.Ordinal) ? "image/webp" : "image/png");
+        });
+
         app.MapGet("/" + SyncScript.FileName, (HttpContext context, SyncScript script, SharerOptions options) =>
         {
             context.Response.Headers.CacheControl = "no-store";

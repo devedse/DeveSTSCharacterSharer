@@ -15,7 +15,8 @@ public sealed record Character(
     DateTimeOffset UploadedAt,
     string? Source,
     long PackageSize,
-    string PackagePath);
+    string PackagePath,
+    string? PortraitPath);
 
 [JsonConverter(typeof(JsonStringEnumConverter<ImportStatus>))]
 public enum ImportStatus { Added, Updated, Unchanged }
@@ -28,6 +29,7 @@ public sealed record ImportResult(string Name, ImportStatus Status, string? Vers
 /// characters/&lt;Name&gt;/          the mod folder exactly as players get it
 /// packages/&lt;Name&gt;.zip         prebuilt download (contains the &lt;Name&gt;/ folder)
 /// packages/&lt;Name&gt;.info.json   upload time and original archive name
+/// packages/&lt;Name&gt;.portrait.*  the character's portrait, taken from the mod's .pck
 /// keys/                       ASP.NET data protection keys (survive container restarts)
 /// work/                       scratch space for uploads (same file system, so swapping a new
 ///                             version in is a rename)
@@ -36,6 +38,8 @@ public sealed record ImportResult(string Name, ImportStatus Status, string? Vers
 public sealed class CharacterStore
 {
     private sealed record PackageInfo(string? Hash, DateTimeOffset UploadedAt, string? Source);
+
+    private static readonly string[] PortraitExtensions = [".png", ".webp"];
 
     private readonly string _charactersDir;
     private readonly string _packagesDir;
@@ -91,7 +95,7 @@ public sealed class CharacterStore
         }
         _characters = characters;
 
-        var known = characters.Keys.SelectMany(n => new[] { $"{n}.zip", $"{n}.info.json" }).ToHashSet();
+        var known = characters.Keys.SelectMany(PackageFileNames).ToHashSet();
         foreach (var file in Directory.EnumerateFiles(_packagesDir).Where(f => !known.Contains(Path.GetFileName(f))))
         {
             File.Delete(file);
@@ -205,11 +209,19 @@ public sealed class CharacterStore
         var content = ModFolder.ComputeContent(folder);
         var info = ReadInfo(name);
         var package = Path.Combine(_packagesDir, $"{name}.zip");
+        var changed = false;
         if (info?.Hash != content.Hash || !File.Exists(package))
         {
             BuildPackage(folder, package);
             info = new PackageInfo(content.Hash, info?.UploadedAt ?? Directory.GetLastWriteTimeUtc(folder), info?.Source);
             WriteInfo(name, info);
+            changed = true;
+        }
+        var portrait = PortraitExtensions.Select(ext => Path.Combine(_packagesDir, $"{name}.portrait{ext}")).FirstOrDefault(File.Exists);
+        // Also looked for when there's none yet, so characters stored before portraits existed get one.
+        if (changed || portrait == null)
+        {
+            portrait = ExtractPortrait(folder, name);
         }
         var manifest = ModFolder.ReadManifest(folder, name);
         return new Character(
@@ -223,7 +235,31 @@ public sealed class CharacterStore
             info.UploadedAt,
             info.Source,
             new FileInfo(package).Length,
-            package);
+            package,
+            portrait);
+    }
+
+    private string? ExtractPortrait(string folder, string name)
+    {
+        foreach (var ext in PortraitExtensions)
+        {
+            File.Delete(Path.Combine(_packagesDir, $"{name}.portrait{ext}"));
+        }
+        try
+        {
+            if (ModPortrait.Find(folder, name) is not { } image)
+            {
+                return null;
+            }
+            var path = Path.Combine(_packagesDir, $"{name}.portrait{image.Extension}");
+            File.WriteAllBytes(path, image.Data);
+            return path;
+        }
+        catch (IOException e)
+        {
+            _log.LogWarning(e, "Could not read the portrait of {Name}", name);
+            return null;
+        }
     }
 
     private static void BuildPackage(string folder, string package)
@@ -249,6 +285,9 @@ public sealed class CharacterStore
         File.Move(tmp, package, overwrite: true);
     }
 
+    private static IEnumerable<string> PackageFileNames(string name) =>
+        [$"{name}.zip", $"{name}.info.json", .. PortraitExtensions.Select(ext => $"{name}.portrait{ext}")];
+
     private string InfoPath(string name) => Path.Combine(_packagesDir, $"{name}.info.json");
 
     private PackageInfo? ReadInfo(string name)
@@ -268,8 +307,10 @@ public sealed class CharacterStore
 
     private void DeletePackage(string name)
     {
-        File.Delete(Path.Combine(_packagesDir, $"{name}.zip"));
-        File.Delete(InfoPath(name));
+        foreach (var file in PackageFileNames(name))
+        {
+            File.Delete(Path.Combine(_packagesDir, file));
+        }
     }
 
     private void TryDeleteDirectory(string path)

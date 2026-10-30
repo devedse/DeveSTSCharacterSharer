@@ -206,8 +206,24 @@ body.dragging .drop-overlay { opacity: 1; visibility: visible; }
     transition: border-color 0.3s, box-shadow 0.3s;
 }
 .character.flash { border-color: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
-.character .top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.character h3 { margin: 0; font: 700 19px var(--heading); overflow-wrap: anywhere; }
+.character .top { display: flex; align-items: center; gap: 14px; }
+.avatar {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 76px;
+    height: 76px;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: radial-gradient(circle at 50% 30%, rgba(232, 176, 75, 0.22), transparent 70%), var(--surface-2);
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 15%; }
+.avatar span { font: 700 32px var(--heading); color: var(--gold); }
+.heading { flex: 1; min-width: 0; display: grid; gap: 2px; }
+/* The version moves under the name when both don't fit, instead of breaking the name. */
+.title-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 10px; }
+.character h3 { margin: 0; font: 700 19px var(--heading); overflow-wrap: break-word; min-width: 0; }
 .pill {
     flex: none;
     padding: 2px 9px;
@@ -221,7 +237,7 @@ body.dragging .drop-overlay { opacity: 1; visibility: visible; }
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.character .author { color: var(--muted); font-size: 13px; margin-top: -6px; }
+.character .author { color: var(--muted); font-size: 13px; }
 .character .desc {
     margin: 0;
     color: var(--muted);

@@ -176,6 +176,88 @@ public sealed class CharacterStoreTests : IDisposable
         Assert.Equal(["Yugi.dll", "Yugi.json", "Yugi.pck"], StoredFiles("Yugi"));
     }
 
+    private static readonly byte[] Png = [0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3];
+    private static readonly byte[] WebP = [.. "RIFF"u8, 4, 0, 0, 0, .. "WEBPVP8L"u8, 9, 9];
+
+    private async Task<Character> UploadWithPck(string name, byte[] pck, string version = "1.0.0")
+    {
+        var files = ModFiles(name, version, prefix: $"{name}/");
+        files[$"{name}/{name}.pck"] = pck;
+        await Upload(MakeZip(files));
+        return _store.Get(name)!;
+    }
+
+    [Fact]
+    public async Task Portrait_IsTheOriginalPngInThePck()
+    {
+        // Like Yugi's pck (format 3): the original PNG is packed next to its .import file.
+        var pck = PckBuilder.Build(3, new Dictionary<string, byte[]>
+        {
+            ["images/packed/card_portraits/yugi/kuriboh.png"] = [.. Png, 7],
+            ["images/packed/portraits/aaa_portrait.png"] = [.. Png, 6], // another character in the same pack
+            ["images/packed/portraits/yugi_hud_icon.png"] = [.. Png, 5],
+            ["images/packed/portraits/yugi_portrait.png"] = Png,
+            ["images/packed/portraits/yugi_portrait.png.import"] = Encoding.UTF8.GetBytes(PckBuilder.Import(".godot/imported/yugi_portrait.png-1.ctex")),
+        });
+
+        var character = await UploadWithPck("Yugi", pck);
+
+        Assert.Equal(".png", Path.GetExtension(character.PortraitPath));
+        Assert.Equal(Png, await File.ReadAllBytesAsync(character.PortraitPath!));
+    }
+
+    [Fact]
+    public async Task Portrait_ComesFromTheCompressedTexture_WhenThePckHasNoOriginal()
+    {
+        // Like Frost Mage's pck (format 2, "res://" names): only the .import and the compiled .ctex.
+        var pck = PckBuilder.Build(2, new Dictionary<string, byte[]>
+        {
+            ["res://images/packed/portraits/frostmage_portrait.png.import"] = Encoding.UTF8.GetBytes(PckBuilder.Import(".godot/imported/frostmage_portrait.png-a0.ctex")),
+            ["res://.godot/imported/frostmage_portrait.png-a0.ctex"] = PckBuilder.Ctex(2, WebP),
+        });
+
+        var character = await UploadWithPck("FrostMage", pck);
+
+        Assert.Equal(".webp", Path.GetExtension(character.PortraitPath));
+        Assert.Equal(WebP, await File.ReadAllBytesAsync(character.PortraitPath!));
+    }
+
+    [Fact]
+    public async Task Portrait_FallsBackToTheHudIcon_AndSkipsGpuTextures()
+    {
+        var pck = PckBuilder.Build(3, new Dictionary<string, byte[]>
+        {
+            // A GPU-compressed (S3TC) portrait can't be shown in a browser.
+            ["images/packed/portraits/bimbi_portrait.png.import"] = Encoding.UTF8.GetBytes(PckBuilder.Import(".godot/imported/bimbi_portrait.ctex")),
+            [".godot/imported/bimbi_portrait.ctex"] = PckBuilder.Ctex(3, [1, 2, 3]),
+            ["images/packed/portraits/bimbi_hud_icon.png.import"] = Encoding.UTF8.GetBytes(PckBuilder.Import(".godot/imported/bimbi_hud_icon.ctex")),
+            [".godot/imported/bimbi_hud_icon.ctex"] = PckBuilder.Ctex(1, Png),
+        });
+
+        var character = await UploadWithPck("Bimbi", pck);
+
+        Assert.Equal(Png, await File.ReadAllBytesAsync(character.PortraitPath!));
+    }
+
+    [Fact]
+    public async Task Portrait_IsAddedOnRestart_AndRemovedWhenANewVersionHasNone()
+    {
+        var withPortrait = PckBuilder.Build(3, new Dictionary<string, byte[]> { ["images/packed/portraits/yugi_portrait.png"] = Png });
+        var first = await UploadWithPck("Yugi", withPortrait);
+
+        // Characters stored before portraits existed get one when the server starts.
+        File.Delete(first.PortraitPath!);
+        var reloaded = CreateStore();
+        reloaded.Load();
+        Assert.Equal(first.PortraitPath, reloaded.Get("Yugi")!.PortraitPath);
+        Assert.True(File.Exists(first.PortraitPath));
+
+        // "PCK-DATA" isn't a Godot pack at all; that's fine, there's just no portrait.
+        await Upload(MakeZip(ModFiles("Yugi", "2.0.0", prefix: "Yugi/")));
+        Assert.Null(_store.Get("Yugi")!.PortraitPath);
+        Assert.False(File.Exists(first.PortraitPath));
+    }
+
     [Fact]
     public async Task ZipInsideZip()
     {
