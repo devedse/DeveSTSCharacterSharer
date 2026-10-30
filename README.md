@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="src/DeveSTSCharacterSharer/wwwroot/icon.png" alt="DeveSTSCharacterSharer logo" width="256">
+</p>
+
 # DeveSTSCharacterSharer
 
 A small Blazor Server app for sharing Slay the Spire 2 character mods with friends.

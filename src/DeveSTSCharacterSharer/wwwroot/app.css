@@ -63,9 +63,7 @@ h2 { font-size: 20px; }
 
 .hero { display: flex; gap: 18px; align-items: center; }
 .hero p { margin: 6px 0 0; color: var(--muted); max-width: 60ch; }
-.crest { width: 56px; height: 56px; flex: none; filter: drop-shadow(0 4px 18px rgba(232, 176, 75, 0.35)); }
-.crest path { fill: var(--gold); }
-.crest .inner { fill: var(--bg); }
+.crest { width: 88px; height: 88px; flex: none; filter: drop-shadow(0 4px 18px rgba(232, 176, 75, 0.35)); }
 
 /* ---------------------------------------------------------------- dropzone */
 
@@ -263,7 +261,7 @@ body.dragging .drop-overlay { opacity: 1; visibility: visible; }
 @media (max-width: 640px) {
     .page { padding-top: 24px; }
     .hero { align-items: flex-start; }
-    .crest { width: 42px; height: 42px; }
+    .crest { width: 60px; height: 60px; }
     .sync { flex-direction: column; align-items: stretch; padding: 18px; }
     .sync .btn { justify-content: center; }
     .grid { grid-template-columns: 1fr; }
