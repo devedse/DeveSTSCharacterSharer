@@ -1,0 +1,16 @@
+services:
+  sts-character-sharer:
+    image: ghcr.io/devedse/devestscharactersharer:latest
+    container_name: sts-character-sharer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # The address your friends use to reach this server; it is baked into the
+      # downloadable sync script. A hostname or an IP both work, e.g.
+      #   https://sts.devedse.click
+      #   http://192.168.1.10:8080
+      # Leave it out to use whatever address the browser used to open the page.
+      - PUBLIC_URL=http://192.168.1.10:8080
+    volumes:
+      - ./data:/data

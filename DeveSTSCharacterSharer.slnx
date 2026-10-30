@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DeveSTSCharacterSharer/DeveSTSCharacterSharer.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DeveSTSCharacterSharer.Tests/DeveSTSCharacterSharer.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,127 @@
+@echo off
+setlocal EnableExtensions DisableDelayedExpansion
+rem ==========================================================================
+rem  Slay the Spire character sync
+rem
+rem  Downloads the latest version of every character shared on
+rem      __SERVER_URL__
+rem  into the folder this is run from. Put it in "Slay the Spire 2\mods" and
+rem  double-click it. Only characters that changed since the last run are
+rem  downloaded. Folders that aren't on the server are left alone.
+rem
+rem  Options:  force     re-download everything
+rem            nopause   don't wait for a key press at the end
+rem ==========================================================================
+
+set "SERVER=__SERVER_URL__"
+set "MARKER=.character-sync"
+set "CURL=%SystemRoot%\System32\curl.exe"
+set "TAR=%SystemRoot%\System32\tar.exe"
+set "WORK=%TEMP%\sts-character-sync"
+set "EXITCODE=0"
+set "FORCE="
+set "NOPAUSE="
+for %%a in (%*) do (
+    if /i "%%~a"=="force" set "FORCE=1"
+    if /i "%%~a"=="nopause" set "NOPAUSE=1"
+)
+
+rem "Run as administrator" starts in System32; never unpack mods there.
+if /i "%CD%"=="%SystemRoot%\System32" cd /d "%~dp0"
+
+set "MISSING="
+if not exist "%CURL%" set "MISSING=curl.exe"
+if not exist "%TAR%" set "MISSING=tar.exe"
+if defined MISSING (
+    echo %MISSING% was not found. This script needs Windows 10 version 1803 or newer.
+    set "EXITCODE=1"
+    goto :end
+)
+
+echo Slay the Spire character sync
+echo   server: %SERVER%
+echo   folder: %CD%
+echo.
+
+if exist "%WORK%" rmdir /s /q "%WORK%"
+mkdir "%WORK%"
+"%CURL%" -fsSL --retry 2 -o "%WORK%\manifest.txt" "%SERVER%/api/manifest.txt"
+if errorlevel 1 (
+    echo Could not get the character list from %SERVER%
+    set "EXITCODE=1"
+    goto :end
+)
+
+set /a TOTAL=0, UPDATED=0, CURRENT=0, FAILED=0
+for /f "usebackq tokens=1,* delims=|" %%A in ("%WORK%\manifest.txt") do call :sync "%%A" "%%B"
+
+echo.
+if %TOTAL%==0 (
+    echo There are no characters on the server yet.
+) else (
+    echo Done: %UPDATED% downloaded, %CURRENT% already up to date, %FAILED% failed.
+)
+if %FAILED% gtr 0 set "EXITCODE=1"
+goto :end
+
+
+:sync
+rem %1 = content hash on the server, %2 = character folder name
+set "HASH=%~1"
+set "NAME=%~2"
+if "%NAME%"=="" exit /b 0
+set /a TOTAL+=1
+
+set "LOCAL="
+if exist "%NAME%\%MARKER%" set /p LOCAL=<"%NAME%\%MARKER%"
+if not defined FORCE if "%LOCAL%"=="%HASH%" (
+    echo   up to date   %NAME%
+    set /a CURRENT+=1
+    exit /b 0
+)
+
+echo   downloading  %NAME%
+"%CURL%" -fSL --retry 2 -# -o "%WORK%\%NAME%.zip" "%SERVER%/api/package/%HASH%"
+if errorlevel 1 goto :sync_failed
+
+rem Move the old version aside first. If the game is running this fails
+rem without touching anything, instead of leaving a half-deleted folder.
+if exist "%NAME%.sync-old" rmdir /s /q "%NAME%.sync-old"
+if exist "%NAME%\" (
+    move "%NAME%" "%NAME%.sync-old" >nul 2>&1 || (
+        echo     Could not replace the "%NAME%" folder. Is the game still running?
+        goto :sync_failed
+    )
+)
+
+"%TAR%" -xf "%WORK%\%NAME%.zip"
+if errorlevel 1 (
+    echo     Could not extract %NAME%.zip
+    if exist "%NAME%" rmdir /s /q "%NAME%"
+    if exist "%NAME%.sync-old" move "%NAME%.sync-old" "%NAME%" >nul
+    goto :sync_failed
+)
+if exist "%NAME%.sync-old" rmdir /s /q "%NAME%.sync-old"
+
+del /f /q /a "%NAME%\%MARKER%" >nul 2>&1
+>"%NAME%\%MARKER%" echo %HASH%
+attrib +h "%NAME%\%MARKER%" >nul 2>&1
+set /a UPDATED+=1
+exit /b 0
+
+:sync_failed
+echo     FAILED: %NAME%
+set /a FAILED+=1
+exit /b 1
+
+
+:end
+if exist "%WORK%" rmdir /s /q "%WORK%"
+if defined NOPAUSE exit /b %EXITCODE%
+rem Keep the window open when started by double-clicking (cmd.exe /c ...).
+setlocal EnableDelayedExpansion
+if /i not "!cmdcmdline:/c=!"=="!cmdcmdline!" (
+    echo.
+    pause
+)
+endlocal & exit /b %EXITCODE%

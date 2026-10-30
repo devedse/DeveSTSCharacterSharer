@@ -1,0 +1,306 @@
+﻿@page "/"
+@implements IDisposable
+@inject CharacterStore Store
+@inject SharerOptions Options
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject ILogger<Home> Log
+
+<PageTitle>Spire Character Share</PageTitle>
+
+@{
+    var characters = Store.All;
+}
+
+<div class="page">
+    <header class="hero">
+        <svg class="crest" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2 4 9v14l12 7 12-7V9z" /><path class="inner" d="M16 8l-6 3.5v9L16 24l6-3.5v-9z" /></svg>
+        <div>
+            <h1>Spire Character Share</h1>
+            <p>Drop a character archive anywhere on this page. A new upload replaces the old version of that character right away.</p>
+        </div>
+    </header>
+
+    <label class="dropzone">
+        <InputFile OnChange="OnFilesChosen" multiple class="sr-only" />
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0-4 4m4-4 4 4" /><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /></svg>
+        <span class="dz-title">Drop <b>.zip</b>, <b>.7z</b> or <b>.rar</b> here</span>
+        <span class="dz-sub">or click to choose files. Only the mod folder is kept (e.g. <code>Yugi/</code> with the .dll, .json and .pck).</span>
+    </label>
+
+    @if (_uploads.Count > 0)
+    {
+        <ul class="uploads">
+            @foreach (var upload in _uploads)
+            {
+                <li @key="upload" class="upload @upload.CssClass">
+                    <span class="file">@upload.FileName</span>
+                    <span class="status">@upload.StatusText</span>
+                    <div class="bar"><i style="width: @(upload.Percent)%"></i></div>
+                </li>
+            }
+        </ul>
+    }
+
+    <section class="sync card">
+        <div class="sync-text">
+            <h2>Get every character on your PC</h2>
+            <ol>
+                <li>Download the sync script.</li>
+                <li>Put it in your <code>Slay the Spire 2\mods</code> folder.</li>
+                <li>Double-click it whenever you want the latest versions. It only downloads characters that changed.</li>
+            </ol>
+            <p class="sync-url @(Options.PublicUrl == null ? "warn" : null)">
+                The script downloads from <code>@ServerUrl</code>@(Options.PublicUrl == null ? ". Set PUBLIC_URL if your friends use a different address." : "")
+            </p>
+        </div>
+        <a class="btn primary" href="@SyncScript.FileName" download>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4" /><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /></svg>
+            Download sync script
+        </a>
+    </section>
+
+    <section>
+        <div class="section-head">
+            <h2>Characters</h2>
+            <span class="count">@(characters.Count > 0 ? characters.Count.ToString() : "")</span>
+        </div>
+        @if (characters.Count == 0)
+        {
+            <p class="empty">No characters yet. Drop the first one above.</p>
+        }
+        else
+        {
+            <div class="grid">
+                @foreach (var c in characters)
+                {
+                    <article @key="c.Name" class="card character @(_flash.Contains(c.Name) ? "flash" : null)">
+                        <div class="top">
+                            <h3>@c.Name</h3>
+                            @if (c.Version != null)
+                            {
+                                <span class="pill" title="@c.Version">@c.Version</span>
+                            }
+                        </div>
+                        @if (c.Author != null)
+                        {
+                            <div class="author">by @c.Author</div>
+                        }
+                        @if (c.Description != null)
+                        {
+                            <p class="desc" title="@c.Description">@c.Description</p>
+                        }
+                        <div class="meta">
+                            <span title="@c.UploadedAt.ToString("u")">updated @Ago(c.UploadedAt)</span>
+                            <span title="@FormatSize(c.Size) unpacked">@FormatSize(c.PackageSize)</span>
+                            <span class="hash" title="content hash @c.Hash">#@c.Hash[..8]</span>
+                        </div>
+                        <div class="files">
+                            @foreach (var file in c.Files)
+                            {
+                                <span>@file</span>
+                            }
+                        </div>
+                        <div class="actions">
+                            <a class="btn small" href="download/@(Uri.EscapeDataString(c.Name)).zip" download>Download .zip</a>
+                            <button class="btn small icon danger" title="Remove @c.Name" aria-label="Remove @c.Name" @onclick="() => DeleteAsync(c.Name)">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
+                            </button>
+                        </div>
+                    </article>
+                }
+            </div>
+        }
+    </section>
+</div>
+
+@* Shown by app.js while files are dragged over the window; the drop lands on this input. *@
+<div class="drop-overlay">
+    <InputFile OnChange="OnFilesChosen" multiple aria-label="Drop files to upload" />
+    <div class="drop-label">Drop to upload</div>
+</div>
+
+@code {
+    private const int MaxFilesPerDrop = 20;
+
+    private readonly List<Upload> _uploads = [];
+    private readonly HashSet<string> _flash = new(StringComparer.OrdinalIgnoreCase);
+    private readonly CancellationTokenSource _disposed = new();
+    private Timer? _clock;
+
+    private string ServerUrl => Options.PublicUrl ?? Navigation.BaseUri.TrimEnd('/');
+
+    protected override void OnInitialized()
+    {
+        Store.Changed += OnStoreChanged;
+        // Keeps "updated 5 min ago" current.
+        _clock = new Timer(_ => Refresh(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+    }
+
+    private void Refresh() => InvokeAsync(() =>
+    {
+        if (!_disposed.IsCancellationRequested)
+        {
+            StateHasChanged();
+        }
+    });
+
+    /// <summary>Any upload, also from someone else, shows up right away with a short highlight.</summary>
+    private void OnStoreChanged(IReadOnlyCollection<string> names) => InvokeAsync(async () =>
+    {
+        _flash.UnionWith(names);
+        Refresh();
+        await Task.Delay(2500);
+        _flash.ExceptWith(names);
+        Refresh();
+    });
+
+    private async Task OnFilesChosen(InputFileChangeEventArgs e)
+    {
+        if (e.FileCount > MaxFilesPerDrop)
+        {
+            _uploads.Insert(0, Upload.Failed($"{e.FileCount} files", $"That's a lot of files; upload at most {MaxFilesPerDrop} at once."));
+            return;
+        }
+        var files = e.GetMultipleFiles(MaxFilesPerDrop);
+        var uploads = files.Select(f => new Upload(f.Name, f.Size)).ToList();
+        _uploads.InsertRange(0, uploads);
+        // Start reading every file right away: choosing or dropping again resets the browser's
+        // file list, which would orphan files that weren't opened yet.
+        await Task.WhenAll(files.Select((file, i) => UploadAsync(uploads[i], file)));
+    }
+
+    private async Task UploadAsync(Upload upload, IBrowserFile file)
+    {
+        var archive = Path.Combine(Store.CreateWorkDirectory(), "upload");
+        try
+        {
+            if (file.Size == 0)
+            {
+                throw new UploadException("The file is empty. If you dropped a folder, zip it first.");
+            }
+            if (file.Size > Options.MaxUploadBytes)
+            {
+                throw new UploadException($"The file is larger than {Options.MaxUploadBytes / 1024 / 1024} MB.");
+            }
+
+            await using (var input = file.OpenReadStream(Options.MaxUploadBytes, _disposed.Token))
+            await using (var output = File.Create(archive))
+            {
+                var buffer = new byte[256 * 1024];
+                var lastRender = Environment.TickCount64;
+                int read;
+                while ((read = await input.ReadAsync(buffer, _disposed.Token)) > 0)
+                {
+                    await output.WriteAsync(buffer.AsMemory(0, read), _disposed.Token);
+                    upload.Sent += read;
+                    if (Environment.TickCount64 - lastRender > 200)
+                    {
+                        lastRender = Environment.TickCount64;
+                        StateHasChanged();
+                    }
+                }
+            }
+
+            upload.State = UploadState.Processing;
+            StateHasChanged();
+            // Once everything arrived, finish the import even if the page gets closed.
+            var results = await Store.ImportAsync(archive, file.Name);
+            upload.State = results.Any(r => r.Status != ImportStatus.Unchanged) ? UploadState.Done : UploadState.Unchanged;
+            upload.Message = string.Join(" · ", results.Select(Describe));
+        }
+        catch (UploadException ex)
+        {
+            upload.State = UploadState.Failed;
+            upload.Message = ex.Message;
+        }
+        catch (OperationCanceledException) when (_disposed.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            Log.LogError(ex, "Upload of {File} failed", file.Name);
+            upload.State = UploadState.Failed;
+            upload.Message = $"Upload failed: {ex.Message}";
+        }
+        finally
+        {
+            var dir = Path.GetDirectoryName(archive)!;
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+        Refresh();
+    }
+
+    private async Task DeleteAsync(string name)
+    {
+        if (await JS.InvokeAsync<bool>("confirm", $"Remove {name} from the server?\n\nPlayers who already have it keep their copy."))
+        {
+            await Store.DeleteAsync(name);
+        }
+    }
+
+    private static string Describe(ImportResult r) => r.Status switch
+    {
+        ImportStatus.Added => $"Added {r.Name}{(r.Version != null ? " " + r.Version : "")}",
+        ImportStatus.Unchanged => $"{r.Name} is already up to date",
+        _ when r.PreviousVersion != null && r.Version != null && r.PreviousVersion != r.Version => $"Updated {r.Name} {r.PreviousVersion} → {r.Version}",
+        _ => $"Updated {r.Name}{(r.Version != null ? " " + r.Version : "")}",
+    };
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:0} KB",
+        _ => $"{bytes / 1024.0 / 1024.0:0.0} MB",
+    };
+
+    private static string Ago(DateTimeOffset time) => (DateTimeOffset.UtcNow - time) switch
+    {
+        var d when d.TotalMinutes < 1 => "just now",
+        var d when d.TotalHours < 1 => $"{(int)d.TotalMinutes} min ago",
+        var d when d.TotalDays < 1 => $"{(int)d.TotalHours} h ago",
+        var d when d.TotalDays < 14 => $"{(int)d.TotalDays} days ago",
+        _ => time.ToString("yyyy-MM-dd"),
+    };
+
+    public void Dispose()
+    {
+        Store.Changed -= OnStoreChanged;
+        _clock?.Dispose();
+        _disposed.Cancel();
+    }
+
+    private enum UploadState { Uploading, Processing, Done, Unchanged, Failed }
+
+    private sealed class Upload(string fileName, long size)
+    {
+        public string FileName { get; } = fileName;
+        public long Size { get; } = size;
+        public long Sent { get; set; }
+        public UploadState State { get; set; }
+        public string? Message { get; set; }
+
+        public static Upload Failed(string fileName, string message) => new(fileName, 0) { State = UploadState.Failed, Message = message };
+
+        public int Percent => Size == 0 ? 0 : (int)(Sent * 100 / Size);
+
+        public string CssClass => State switch
+        {
+            UploadState.Processing => "processing",
+            UploadState.Done => "ok",
+            UploadState.Unchanged => "same",
+            UploadState.Failed => "error",
+            _ => "",
+        };
+
+        public string StatusText => State switch
+        {
+            UploadState.Uploading => $"uploading {Percent}% of {FormatSize(Size)}",
+            UploadState.Processing => "unpacking…",
+            _ => Message ?? "",
+        };
+    }
+}
