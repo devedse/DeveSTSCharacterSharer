@@ -101,8 +101,8 @@ from the server. If the game is still running, the old folder is locked; the scr
 untouched and reports the failure instead of leaving a half-deleted folder. Close the game and run
 it again.
 
-Options: `sts-character-sync.cmd force` re-downloads everything, `nopause` skips the "press any key"
-at the end (useful for scheduled tasks).
+Options: `sts-character-sync.cmd force` re-downloads everything, `nopause` skips the 5 second wait at
+the end (useful for scheduled tasks).
 
 ## Data folder
 

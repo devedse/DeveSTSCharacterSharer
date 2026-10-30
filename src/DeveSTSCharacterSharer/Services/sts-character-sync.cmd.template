@@ -10,7 +10,7 @@ rem  double-click it. Only characters that changed since the last run are
 rem  downloaded. Folders that aren't on the server are left alone.
 rem
 rem  Options:  force     re-download everything
-rem            nopause   don't wait for a key press at the end
+rem            nopause   don't wait 5 seconds at the end
 rem ==========================================================================
 
 set "SERVER=__SERVER_URL__"
@@ -117,11 +117,9 @@ exit /b 1
 
 :end
 if exist "%WORK%" rmdir /s /q "%WORK%"
-if defined NOPAUSE exit /b %EXITCODE%
-rem Keep the window open when started by double-clicking (cmd.exe /c ...).
-setlocal EnableDelayedExpansion
-if /i not "!cmdcmdline:/c=!"=="!cmdcmdline!" (
+rem Keep the window open for a moment so the result can be read (any key skips it).
+if not defined NOPAUSE (
     echo.
-    pause
+    timeout /t 5
 )
-endlocal & exit /b %EXITCODE%
+exit /b %EXITCODE%
