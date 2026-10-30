@@ -31,7 +31,7 @@ public sealed partial class SharerOptions
         };
     }
 
-    /// <summary>'sts.devedse.click' becomes 'https://sts.devedse.click', '192.168.1.10:8080' becomes 'http://192.168.1.10:8080'.</summary>
+    /// <summary>'sts.example.com' becomes 'https://sts.example.com', '192.168.1.10:8080' becomes 'http://192.168.1.10:8080'.</summary>
     public static string? NormalizePublicUrl(string? raw)
     {
         var url = raw?.Trim().TrimEnd('/');

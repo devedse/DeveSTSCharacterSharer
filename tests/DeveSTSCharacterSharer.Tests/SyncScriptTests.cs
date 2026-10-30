@@ -6,8 +6,8 @@ namespace DeveSTSCharacterSharer.Tests;
 public class SyncScriptTests
 {
     [Theory]
-    [InlineData("sts.devedse.click", "https://sts.devedse.click")]
-    [InlineData("https://sts.devedse.click/", "https://sts.devedse.click")]
+    [InlineData("sts.example.com", "https://sts.example.com")]
+    [InlineData("https://sts.example.com/", "https://sts.example.com")]
     [InlineData("192.168.1.10:8080", "http://192.168.1.10:8080")]
     [InlineData("localhost:8080", "http://localhost:8080")]
     [InlineData("nas:8080", "http://nas:8080")]

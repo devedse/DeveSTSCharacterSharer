@@ -23,7 +23,7 @@ services:
     environment:
       # How your friends reach this server. It is baked into the sync script.
       - PUBLIC_URL=http://192.168.1.10:8080
-      # - PUBLIC_URL=https://sts.devedse.click
+      # - PUBLIC_URL=https://sts.example.com
     volumes:
       - ./data:/data
 ```
