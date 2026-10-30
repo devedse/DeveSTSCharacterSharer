@@ -98,6 +98,21 @@ jobs:
     - name: dotnet test
       run: dotnet test DeveSTSCharacterSharer.slnx -c Release --no-build --verbosity normal
 
+  test_sync_script_windows:
+    needs: generate_version_number
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: Setup .NET Core
+      uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: 10.0.x
+    - name: dotnet publish
+      run: dotnet publish src/DeveSTSCharacterSharer/DeveSTSCharacterSharer.csproj -c Release -o publish
+    - name: Run the sync script against a local server
+      shell: pwsh
+      run: ./tests/Test-SyncScript.ps1 -App publish
+
   build_linux_with_sonarqube:
     needs: generate_version_number
     runs-on: ubuntu-latest
@@ -168,7 +183,7 @@ jobs:
   release_github:
     permissions:
       contents: write
-    needs: [generate_version_number, build_linux_with_sonarqube, build_linux, build_docker]
+    needs: [generate_version_number, build_linux_with_sonarqube, build_linux, build_docker, test_sync_script_windows]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/master'
     steps:

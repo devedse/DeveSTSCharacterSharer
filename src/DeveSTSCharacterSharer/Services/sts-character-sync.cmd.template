@@ -7,12 +7,14 @@ rem  Downloads the latest version of every character shared on
 rem      __SERVER_URL__
 rem  into the folder this is run from. Put it in "Slay the Spire 2\mods" and
 rem  double-click it. Only characters that changed since the last run are
-rem  downloaded. Folders that aren't on the server are left alone.
+rem  downloaded. Folders that aren't on the server are left alone. This script
+rem  updates itself from the server first.
 rem
 rem  Options:  force     re-download everything
 rem            nopause   don't wait 5 seconds at the end
 rem ==========================================================================
 
+set "SELF=%~f0"
 set "SERVER=__SERVER_URL__"
 set "MARKER=__MARKER__"
 set "CURL=%SystemRoot%\System32\curl.exe"
@@ -21,9 +23,11 @@ set "WORK=%TEMP%\sts-character-sync"
 set "EXITCODE=0"
 set "FORCE="
 set "NOPAUSE="
+set "SELFUPDATED="
 for %%a in (%*) do (
     if /i "%%~a"=="force" set "FORCE=1"
     if /i "%%~a"=="nopause" set "NOPAUSE=1"
+    if /i "%%~a"=="selfupdated" set "SELFUPDATED=1"
 )
 
 rem "Run as administrator" starts in System32; never unpack mods there.
@@ -38,13 +42,31 @@ if defined MISSING (
     goto :end
 )
 
+if exist "%WORK%" rmdir /s /q "%WORK%"
+mkdir "%WORK%"
+
+rem Update this script first. cmd.exe reads a running .cmd from disk as it goes, so
+rem overwriting it would make cmd carry on at the same byte offset in the new text.
+rem Hence the copy and the restart are one ( ) block, which cmd reads completely
+rem before running any of it, and the new version is started without "call", so
+rem nothing more is read from this file. "selfupdated" keeps the new version from
+rem trying again; the exit /b is only a safety net.
+if defined SELFUPDATED goto :script_current
+"%CURL%" -fsL --retry 2 -o "%WORK%\latest.cmd" "%SERVER%/__SCRIPT_NAME__" || goto :script_current
+fc /b "%WORK%\latest.cmd" "%SELF%" >nul 2>&1 && goto :script_current
+echo Updating this script to the latest version...
+(
+    copy /y "%WORK%\latest.cmd" "%SELF%" >nul || goto :script_current
+    "%SELF%" %* selfupdated
+    exit /b
+)
+:script_current
+
 echo Slay the Spire character sync
 echo   server: %SERVER%
 echo   folder: %CD%
 echo.
 
-if exist "%WORK%" rmdir /s /q "%WORK%"
-mkdir "%WORK%"
 "%CURL%" -fsSL --retry 2 -o "%WORK%\manifest.txt" "%SERVER%/api/manifest.txt"
 if errorlevel 1 (
     echo Could not get the character list from %SERVER%

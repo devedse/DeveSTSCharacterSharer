@@ -30,6 +30,7 @@ public sealed class SyncScript
         var script = _template
             .Replace("__SERVER_URL__", serverUrl)
             .Replace("__MARKER__", MarkerFileName)
+            .Replace("__SCRIPT_NAME__", FileName)
             .ReplaceLineEndings("\r\n");
         return Encoding.ASCII.GetBytes(script);
     }

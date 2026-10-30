@@ -106,6 +106,10 @@ of characters. Each run it:
    time,
 3. downloads and unpacks only the characters that are new or changed, replacing the old folder.
 
+Before that it updates itself: when the server has a newer version of the script, it replaces itself
+and restarts. (A running `.cmd` can't simply be overwritten, because cmd.exe keeps reading the file
+from where it was; the copy and the restart run from one block cmd has already read in full.)
+
 It uses the `curl.exe` and `tar.exe` that come with Windows 10 (1803+) and 11, so nothing needs to be
 installed. Folders that aren't on the server are left alone, and so are characters that get removed
 from the server. If the game is still running, the old folder is locked; the script then leaves it
