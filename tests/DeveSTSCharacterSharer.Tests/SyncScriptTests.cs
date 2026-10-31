@@ -18,7 +18,7 @@ public class SyncScriptTests
     [Fact]
     public void Render_BakesInTheServer_WithWindowsLineEndings()
     {
-        var script = Encoding.ASCII.GetString(new SyncScript().Render("http://192.168.1.10:8080"));
+        var script = Encoding.ASCII.GetString(new SyncScript().RenderCmd("http://192.168.1.10:8080"));
 
         Assert.Contains("set \"SERVER=http://192.168.1.10:8080\"\r\n", script);
         Assert.Contains($"set \"MARKER={SyncScript.MarkerFileName}\"\r\n", script);
@@ -27,10 +27,28 @@ public class SyncScriptTests
         Assert.StartsWith("@echo off\r\n", script);
     }
 
+    [Fact]
+    public void RenderShell_BakesInTheServer_WithUnixLineEndings()
+    {
+        var script = Encoding.ASCII.GetString(new SyncScript().RenderShell("https://sts.example.com"));
+
+        Assert.StartsWith("#!/bin/sh\n", script);
+        Assert.Contains("SERVER=\"https://sts.example.com\"\n", script);
+        Assert.Contains($"MARKER=\"{SyncScript.MarkerFileName}\"\n", script);
+        Assert.Contains($"\"$SERVER/{SyncScript.ShellFileName}\"", script);
+        Assert.DoesNotContain("__", script);
+        Assert.DoesNotContain("\r", script);
+    }
+
     [Theory]
     [InlineData("http://evil\" & del *")]
     [InlineData("http://host/%TEMP%")]
     [InlineData("http://host/a(b)")]
-    public void Render_RefusesUrlsThatCmdWouldInterpret(string url) =>
-        Assert.Throws<InvalidOperationException>(() => new SyncScript().Render(url));
+    [InlineData("http://host/$(reboot)")]
+    [InlineData("http://host/`reboot`")]
+    public void Render_RefusesUrlsThatCmdOrShWouldInterpret(string url)
+    {
+        Assert.Throws<InvalidOperationException>(() => new SyncScript().RenderCmd(url));
+        Assert.Throws<InvalidOperationException>(() => new SyncScript().RenderShell(url));
+    }
 }

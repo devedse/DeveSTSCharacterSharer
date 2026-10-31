@@ -2,36 +2,46 @@ using System.Text;
 
 namespace DeveSTSCharacterSharer.Services;
 
-/// <summary>The Windows .cmd that downloads every changed character into the folder it runs in.</summary>
+/// <summary>
+/// The scripts that download every changed character into the mods folder and sort the game's mod
+/// list: a .cmd for Windows and a .sh for Linux and macOS.
+/// </summary>
 public sealed class SyncScript
 {
     public const string FileName = "sts-character-sync.cmd";
 
+    public const string ShellFileName = "sts-character-sync.sh";
+
     /// <summary>Hidden file the script keeps in each character folder, holding the hash it downloaded.</summary>
     public const string MarkerFileName = ".character-sync";
 
-    private readonly string _template;
+    private readonly string _cmdTemplate = ReadTemplate(FileName);
+    private readonly string _shellTemplate = ReadTemplate(ShellFileName);
 
-    public SyncScript()
-    {
-        using var stream = typeof(SyncScript).Assembly.GetManifestResourceStream(FileName + ".template")
-            ?? throw new InvalidOperationException("Sync script template is missing from the assembly");
-        using var reader = new StreamReader(stream, Encoding.ASCII);
-        _template = reader.ReadToEnd();
-    }
+    // cmd.exe misparses labels and gotos in files with bare LF line endings.
+    public byte[] RenderCmd(string serverUrl) => Render(_cmdTemplate, serverUrl, FileName, "\r\n");
 
-    public byte[] Render(string serverUrl)
+    public byte[] RenderShell(string serverUrl) => Render(_shellTemplate, serverUrl, ShellFileName, "\n");
+
+    private static byte[] Render(string template, string serverUrl, string scriptName, string newLine)
     {
         if (!SharerOptions.IsSafeUrl(serverUrl))
         {
             throw new InvalidOperationException($"Can't build a sync script for '{serverUrl}', set PUBLIC_URL");
         }
-        // cmd.exe misparses labels and gotos in files with bare LF line endings.
-        var script = _template
+        var script = template
             .Replace("__SERVER_URL__", serverUrl)
             .Replace("__MARKER__", MarkerFileName)
-            .Replace("__SCRIPT_NAME__", FileName)
-            .ReplaceLineEndings("\r\n");
+            .Replace("__SCRIPT_NAME__", scriptName)
+            .ReplaceLineEndings(newLine);
         return Encoding.ASCII.GetBytes(script);
+    }
+
+    private static string ReadTemplate(string scriptName)
+    {
+        using var stream = typeof(SyncScript).Assembly.GetManifestResourceStream(scriptName + ".template")
+            ?? throw new InvalidOperationException($"{scriptName}.template is missing from the assembly");
+        using var reader = new StreamReader(stream, Encoding.ASCII);
+        return reader.ReadToEnd();
     }
 }

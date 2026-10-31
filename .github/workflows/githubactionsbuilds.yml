@@ -113,6 +113,24 @@ jobs:
       shell: pwsh
       run: ./tests/Test-SyncScript.ps1 -App publish
 
+  test_sync_script_unix:
+    needs: generate_version_number
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v7
+    - name: Setup .NET Core
+      uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: 10.0.x
+    - name: dotnet publish
+      run: dotnet publish src/DeveSTSCharacterSharer/DeveSTSCharacterSharer.csproj -c Release -o publish
+    - name: Run the sync script against a local server
+      run: sh tests/test-sync-script.sh publish
+
   build_linux_with_sonarqube:
     needs: generate_version_number
     runs-on: ubuntu-latest
@@ -183,7 +201,7 @@ jobs:
   release_github:
     permissions:
       contents: write
-    needs: [generate_version_number, build_linux_with_sonarqube, build_linux, build_docker, test_sync_script_windows]
+    needs: [generate_version_number, build_linux_with_sonarqube, build_linux, build_docker, test_sync_script_windows, test_sync_script_unix]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/master'
     steps:

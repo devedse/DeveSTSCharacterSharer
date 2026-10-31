@@ -7,10 +7,13 @@ rem  Downloads the latest version of every character shared on
 rem      __SERVER_URL__
 rem  into the folder this is run from. Put it in "Slay the Spire 2\mods" and
 rem  double-click it. Only characters that changed since the last run are
-rem  downloaded. Folders that aren't on the server are left alone. This script
-rem  updates itself from the server first.
+rem  downloaded. Folders that aren't on the server are left alone. Then it
+rem  sorts the game's mod list the same way for everyone (other mods first,
+rem  characters A-Z after them), so you can play together. This script updates
+rem  itself from the server first.
 rem
 rem  Options:  force     re-download everything
+rem            nosort    leave the game's mod list alone
 rem            nopause   don't wait 5 seconds at the end
 rem ==========================================================================
 
@@ -20,12 +23,15 @@ set "MARKER=__MARKER__"
 set "CURL=%SystemRoot%\System32\curl.exe"
 set "TAR=%SystemRoot%\System32\tar.exe"
 set "WORK=%TEMP%\sts-character-sync"
+set "SAVES=%APPDATA%\SlayTheSpire2\steam"
 set "EXITCODE=0"
 set "FORCE="
+set "NOSORT="
 set "NOPAUSE="
 set "SELFUPDATED="
 for %%a in (%*) do (
     if /i "%%~a"=="force" set "FORCE=1"
+    if /i "%%~a"=="nosort" set "NOSORT=1"
     if /i "%%~a"=="nopause" set "NOPAUSE=1"
     if /i "%%~a"=="selfupdated" set "SELFUPDATED=1"
 )
@@ -84,6 +90,7 @@ if %TOTAL%==0 (
     echo Done: %UPDATED% downloaded, %CURRENT% already up to date, %FAILED% failed.
 )
 if %FAILED% gtr 0 set "EXITCODE=1"
+if not defined NOSORT call :sortmods
 goto :end
 
 
@@ -135,6 +142,47 @@ exit /b 0
 echo     FAILED: %NAME%
 set /a FAILED+=1
 exit /b 1
+
+
+:sortmods
+rem The game loads mods in the order of the mod list in settings.save (one per
+rem Steam account) and adds new mods at the end, but co-op needs everyone to have
+rem the same order. The server sorts the list; only that part of the file changes.
+if %FAILED% gtr 0 (
+    echo Mod order: not sorted, because not every character could be updated.
+    exit /b 0
+)
+if not exist "%SAVES%\" (
+    echo Mod order: no Slay the Spire 2 settings found yet. Start the game once, then run this again.
+    exit /b 0
+)
+rem The game writes settings.save when it exits, which would undo the sorting.
+tasklist /fi "imagename eq SlayTheSpire2.exe" /nh 2>nul | find /i "SlayTheSpire2.exe" >nul && (
+    echo Mod order: not sorted while Slay the Spire 2 is running. Close it and run this again.
+    exit /b 0
+)
+for /d %%u in ("%SAVES%\*") do if exist "%%~u\settings.save" call :sortone "%%~u\settings.save"
+exit /b 0
+
+:sortone
+rem %1 = a settings.save
+"%CURL%" -fsS --retry 2 -H "Content-Type: application/octet-stream" --data-binary "@%~1" -o "%WORK%\settings.save" "%SERVER%/api/sort-mods"
+if errorlevel 1 (
+    echo Mod order: could not be sorted.
+    exit /b 0
+)
+fc /b "%WORK%\settings.save" "%~1" >nul 2>&1 && (
+    echo Mod order: already sorted.
+    exit /b 0
+)
+copy /y "%~1" "%~1.bak" >nul
+rem No path in the echo below: a ")" in the user's folder name would end the block.
+copy /y "%WORK%\settings.save" "%~1" >nul || (
+    echo Mod order: could not write settings.save.
+    exit /b 0
+)
+echo Mod order: sorted. The previous order is in settings.save.bak next to it.
+exit /b 0
 
 
 :end

@@ -15,6 +15,14 @@ public sealed partial class SharerOptions
 
     public long MaxUploadBytes { get; init; }
 
+    /// <summary>
+    /// Mod ids that go at the top of everyone's mod list (MOD_LIBRARIES, comma separated), on top of
+    /// whatever the shared mods depend on.
+    /// </summary>
+    public IReadOnlyList<string> ModLibraries { get; init; } = DefaultModLibraries;
+
+    public static readonly IReadOnlyList<string> DefaultModLibraries = ["BaseLib", "STS2-RitsuLib", "RitsuLib", "ModConfig"];
+
     public static SharerOptions FromConfiguration(IConfiguration config, IHostEnvironment env)
     {
         var publicUrl = NormalizePublicUrl(config["PUBLIC_URL"]);
@@ -28,6 +36,9 @@ public sealed partial class SharerOptions
             DataDir = config["DATA_DIR"] is { Length: > 0 } dataDir ? dataDir : Path.Combine(env.ContentRootPath, "data"),
             PublicUrl = publicUrl,
             MaxUploadBytes = (long.TryParse(config["MAX_UPLOAD_MB"], out var mb) ? mb : 2048) * 1024 * 1024,
+            ModLibraries = config["MOD_LIBRARIES"] is { } libraries
+                ? libraries.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                : DefaultModLibraries,
         };
     }
 
@@ -48,7 +59,7 @@ public sealed partial class SharerOptions
         return url;
     }
 
-    /// <summary>The URL ends up inside a .cmd file, so refuse anything cmd.exe would interpret.</summary>
+    /// <summary>The URL ends up inside the .cmd and .sh scripts, so refuse anything cmd.exe or sh would interpret.</summary>
     public static bool IsSafeUrl(string url) => SafeUrlRegex().IsMatch(url);
 
     [GeneratedRegex(@"^[\d.]+$")]

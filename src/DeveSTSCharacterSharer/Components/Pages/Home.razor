@@ -48,16 +48,20 @@
             <ol>
                 <li>Download the sync script.</li>
                 <li>Put it in your <code>Slay the Spire 2\mods</code> folder.</li>
-                <li>Double-click it whenever you want the latest versions. It only downloads characters that changed.</li>
+                <li>Double-click it whenever you want the latest versions. It only downloads characters that changed, and puts the game's mod list in the same order for everyone, so you can play together.</li>
             </ol>
+            <p class="sync-url">On Linux or macOS, take the .sh version and run <code>sh @SyncScript.ShellFileName</code> in the mods folder.</p>
             <p class="sync-url @(Options.PublicUrl == null ? "warn" : null)">
                 The script downloads from <code>@ServerUrl</code>@(Options.PublicUrl == null ? ". Set PUBLIC_URL if your friends use a different address." : "")
             </p>
         </div>
-        <a class="btn primary" href="@SyncScript.FileName" download>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4" /><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /></svg>
-            Download sync script
-        </a>
+        <div class="sync-actions">
+            <a class="btn primary" href="@SyncScript.FileName" download>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4" /><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /></svg>
+                Download sync script
+            </a>
+            <a class="btn small" href="@SyncScript.ShellFileName" download>Linux / macOS (.sh)</a>
+        </div>
     </section>
 
     <section>

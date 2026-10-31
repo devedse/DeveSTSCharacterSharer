@@ -13,6 +13,8 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Services\sts-character-sync.cmd.template" LogicalName="sts-character-sync.cmd.template" />
+    <!-- WithCulture: otherwise MSBuild takes the ".sh" for a language (Serbo-Croatian) and puts it in a satellite assembly. -->
+    <EmbeddedResource Include="Services\sts-character-sync.sh.template" LogicalName="sts-character-sync.sh.template" WithCulture="false" />
   </ItemGroup>
 
 </Project>

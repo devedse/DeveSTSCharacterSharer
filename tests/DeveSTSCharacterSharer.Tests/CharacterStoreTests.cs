@@ -71,8 +71,43 @@ public sealed class CharacterStoreTests : IDisposable
         var character = _store.Get("Yugi")!;
         Assert.Equal("Yugi-0.3.0.zip", character.Source);
         Assert.Equal("Tester", character.Author);
+        Assert.Equal("Yugi", character.ModId);
+        Assert.Empty(character.Dependencies);
         using var package = ZipFile.OpenRead(character.PackagePath);
         Assert.Equal(["Yugi/", "Yugi/Yugi.dll", "Yugi/Yugi.json", "Yugi/Yugi.pck"], package.Entries.Select(e => e.FullName).Order());
+
+        // The same folder as .tar.gz, for the Linux/macOS script.
+        var tarball = new Dictionary<string, byte[]>();
+        using (var tar = new TarReader(new GZipStream(File.OpenRead(character.TarballPath), CompressionMode.Decompress)))
+        {
+            while (tar.GetNextEntry() is { } entry)
+            {
+                using var data = new MemoryStream();
+                entry.DataStream?.CopyTo(data);
+                tarball[entry.Name] = data.ToArray();
+            }
+        }
+        Assert.Equal(["Yugi/", "Yugi/Yugi.dll", "Yugi/Yugi.json", "Yugi/Yugi.pck"], tarball.Keys.Order());
+        Assert.Equal(File.ReadAllBytes(Path.Combine(_dataDir, "characters", "Yugi", "Yugi.pck")), tarball["Yugi/Yugi.pck"]);
+    }
+
+    [Fact]
+    public async Task ModIdAndDependencies_ComeFromTheManifest()
+    {
+        var files = ModFiles("Frost", prefix: "Frost/");
+        files["Frost/Frost.json"] = Encoding.UTF8.GetBytes("""
+            {
+              "id": "FrostMage",
+              "version": "0.1.1",
+              "dependencies": [ { "id": "BaseLib", "min_version": "3.4.1" }, "STS2-RitsuLib", { "min_version": "1" } ]
+            }
+            """);
+
+        await Upload(MakeZip(files));
+
+        var character = _store.Get("Frost")!;
+        Assert.Equal("FrostMage", character.ModId);
+        Assert.Equal(["BaseLib", "STS2-RitsuLib"], character.Dependencies);
     }
 
     [Fact]
@@ -95,7 +130,7 @@ public sealed class CharacterStoreTests : IDisposable
         Assert.NotEqual(firstHash, _store.Get("Yugi")!.Hash);
         Assert.Equal(["INSTALL.txt", "Yugi.dll", "Yugi.json", "Yugi.pck"], StoredFiles("Yugi"));
         Assert.Single(_store.All);
-        Assert.Equal(["Yugi.info.json", "Yugi.zip"], Directory.GetFiles(Path.Combine(_dataDir, "packages")).Select(Path.GetFileName).Order());
+        Assert.Equal(["Yugi.info.json", "Yugi.tar.gz", "Yugi.zip"], Directory.GetFiles(Path.Combine(_dataDir, "packages")).Select(Path.GetFileName).Order());
     }
 
     [Fact]
@@ -369,8 +404,12 @@ public sealed class CharacterStoreTests : IDisposable
             await File.WriteAllBytesAsync(Path.Combine(manual, name), data);
         }
 
+        // Data from before there were .tar.gz packages gets them on start.
+        File.Delete(before.TarballPath);
+
         var reloaded = CreateStore();
         reloaded.Load();
+        Assert.True(File.Exists(before.TarballPath));
         Assert.Equal(before.Hash, reloaded.Get("Yugi")!.Hash);
         Assert.Equal(before.UploadedAt, reloaded.Get("Yugi")!.UploadedAt);
         Assert.True(File.Exists(reloaded.Get("Manual")!.PackagePath));
@@ -383,5 +422,6 @@ public sealed class CharacterStoreTests : IDisposable
         Assert.Null(reloaded.Get("Yugi"));
         Assert.False(Directory.Exists(Path.Combine(_dataDir, "characters", "Yugi")));
         Assert.False(File.Exists(before.PackagePath));
+        Assert.False(File.Exists(before.TarballPath));
     }
 }

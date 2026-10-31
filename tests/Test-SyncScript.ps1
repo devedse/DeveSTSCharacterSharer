@@ -1,6 +1,7 @@
 <#
 Runs the real sts-character-sync.cmd on Windows against a locally started server: first download,
-nothing changed, a character update, a locked folder (game running) and the script updating itself.
+nothing changed, a character update, a locked folder (game running), sorting the game's mod list and
+the script updating itself.
 Used by CI on a Windows runner; locally: dotnet publish the app, then
     .\tests\Test-SyncScript.ps1 -App <publish folder>
 #>
@@ -13,7 +14,43 @@ $work = Join-Path ([IO.Path]::GetTempPath()) "sts-sync-test-$PID"
 $mods = Join-Path $work 'mods'
 $script = Join-Path $mods 'sts-character-sync.cmd'
 $server = 'http://localhost:5280'
-New-Item -ItemType Directory -Force $mods, (Join-Path $work 'data') | Out-Null
+# The game's settings live in %APPDATA%; the script gets a fake one.
+$appData = Join-Path $work 'appdata'
+$saves = Join-Path $appData 'SlayTheSpire2\steam\76561190000000001'
+$settings = Join-Path $saves 'settings.save'
+$originalSettings = @'
+{
+  "fps_limit": 60,
+  "mod_settings": {
+    "mod_list": [
+      {
+        "id": "Zeta",
+        "is_enabled": true,
+        "source": "workshop"
+      },
+      {
+        "id": "TheJester",
+        "is_enabled": false,
+        "source": "mods_directory"
+      },
+      {
+        "id": "STS2-RitsuLib",
+        "is_enabled": true,
+        "source": "workshop"
+      },
+      {
+        "id": "BaseLib",
+        "is_enabled": true,
+        "source": "workshop"
+      }
+    ],
+    "play_with_mods": true
+  },
+  "volume": 0.5
+}
+'@
+New-Item -ItemType Directory -Force $mods, (Join-Path $work 'data'), $saves | Out-Null
+[IO.File]::WriteAllText($settings, $originalSettings)
 
 function Assert([bool]$condition, [string]$message) {
     if (-not $condition) { throw "FAILED: $message" }
@@ -24,11 +61,16 @@ function Get-MatchCount([string]$text, [string]$pattern) { [regex]::Matches($tex
 
 function Invoke-Sync([string]$arguments = '') {
     Push-Location $mods
+    $realAppData = $env:APPDATA
     try {
+        $env:APPDATA = $appData
         $output = cmd /c "sts-character-sync.cmd nopause $arguments" 2>&1 | Out-String
         $exitCode = $LASTEXITCODE
     }
-    finally { Pop-Location }
+    finally {
+        $env:APPDATA = $realAppData
+        Pop-Location
+    }
     Write-Host $output
     [pscustomobject]@{ Output = $output; ExitCode = $exitCode }
 }
@@ -37,6 +79,10 @@ function Send-Character([string]$archive) {
     curl.exe -sSf -T $archive "$server/api/upload/$(Split-Path -Leaf $archive)" | Write-Host
     if ($LASTEXITCODE -ne 0) { throw "upload of $archive failed" }
 }
+
+function Get-ModIds { ((Get-Content $settings -Raw | ConvertFrom-Json).mod_settings.mod_list | ForEach-Object { $_.id }) -join ' ' }
+
+function Test-SettingsUntouched { [IO.File]::ReadAllText($settings) -eq $originalSettings }
 
 function Get-JesterVersion { (Get-Content (Join-Path $mods 'TheJester/TheJester.json') -Raw | ConvertFrom-Json).version }
 
@@ -62,11 +108,16 @@ try {
     $hash = ((curl.exe -sSf "$server/api/manifest.txt") -split '\|')[0]
     Assert ((Get-Content (Join-Path $mods 'TheJester/.character-sync') -Force -Raw).Trim() -eq $hash) 'the marker holds the server hash'
     Assert ($run.Output -notmatch 'Updating this script') 'an up to date script does not update itself'
+    Assert ($run.Output -match 'Mod order: sorted') 'it says it sorted the mod list'
+    Assert ((Get-ModIds) -eq 'BaseLib STS2-RitsuLib TheJester Zeta') 'libraries first, then the rest A-Z'
+    Assert ((Get-Content $settings -Raw) -match '"volume": 0.5') 'the rest of settings.save is untouched'
+    Assert ([IO.File]::ReadAllText("$settings.bak") -eq $originalSettings) 'the old order is kept as settings.save.bak'
 
     Write-Host "`n=== second run downloads nothing"
     $run = Invoke-Sync
     Assert ($run.ExitCode -eq 0) 'exit code 0'
     Assert ($run.Output -match 'up to date\s+TheJester') 'TheJester is up to date'
+    Assert ($run.Output -match 'Mod order: already sorted') 'the mod list is already sorted'
 
     Write-Host "`n=== a new version replaces the old folder"
     $v2 = Join-Path $work 'v2'
@@ -88,10 +139,28 @@ try {
     finally { $lock.Dispose() }
     Assert ($run.ExitCode -ne 0) 'a failed character gives a non-zero exit code'
     Assert ($run.Output -match 'Is the game still running') 'it says why'
+    Assert ($run.Output -match 'Mod order: not sorted, because not every character could be updated') 'the mod list is left alone after a failure'
     Assert ((Get-JesterVersion) -eq '1.1.0') 'the old version is untouched'
     Assert (Test-Path (Join-Path $mods 'TheJester/TheJester.pck')) 'no files went missing'
     $run = Invoke-Sync
     Assert ($run.ExitCode -eq 0 -and (Get-JesterVersion) -eq '1.0.0') 'once the game is closed it updates'
+
+    Write-Host "`n=== nosort leaves the mod list alone"
+    [IO.File]::WriteAllText($settings, $originalSettings)
+    $run = Invoke-Sync 'nosort'
+    Assert ($run.ExitCode -eq 0) 'exit code 0'
+    Assert ($run.Output -notmatch 'Mod order') 'nothing about the mod order'
+    Assert (Test-SettingsUntouched) 'settings.save is untouched'
+
+    Write-Host "`n=== the mod list isn't sorted while the game is running"
+    $game = Join-Path $work 'SlayTheSpire2.exe'
+    Copy-Item (Join-Path $env:SystemRoot 'System32\PING.EXE') $game
+    $gameProcess = Start-Process $game -ArgumentList '-n 60 127.0.0.1' -PassThru -WindowStyle Hidden
+    try { $run = Invoke-Sync }
+    finally { Stop-Process $gameProcess -Force -ErrorAction SilentlyContinue }
+    Assert ($run.ExitCode -eq 0) 'exit code 0'
+    Assert ($run.Output -match 'not sorted while Slay the Spire 2 is running') 'it says why'
+    Assert (Test-SettingsUntouched) 'settings.save is untouched'
 
     Write-Host "`n=== an older script updates itself, then syncs with the new version"
     $latest = [IO.File]::ReadAllBytes($script)
@@ -106,6 +175,7 @@ try {
     Assert ((Get-MatchCount $run.Output 'Done:') -eq 1) 'the sync ran exactly once, in the new version'
     Assert ($run.Output -match 'downloading\s+TheJester') 'arguments (force) are passed on to the new version'
     Assert ($run.Output -notmatch 'is not recognized|was unexpected') 'no broken lines were run'
+    Assert ((Get-ModIds) -eq 'BaseLib STS2-RitsuLib TheJester Zeta') 'the mod list is sorted again'
 
     Write-Host "`nAll sync script checks passed." -ForegroundColor Green
 }

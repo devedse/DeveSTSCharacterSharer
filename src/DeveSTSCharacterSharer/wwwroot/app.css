@@ -163,6 +163,8 @@ body.dragging .drop-overlay { opacity: 1; visibility: visible; }
 .sync li { margin: 2px 0; }
 .sync-url { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
 .sync-url.warn { color: var(--gold); }
+.sync-actions { display: flex; flex-direction: column; gap: 8px; }
+.sync-actions .btn { justify-content: center; }
 
 .btn {
     display: inline-flex;

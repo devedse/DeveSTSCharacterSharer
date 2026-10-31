@@ -1,3 +1,4 @@
+using System.Formats.Tar;
 using System.IO.Compression;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -16,7 +17,10 @@ public sealed record Character(
     string? Source,
     long PackageSize,
     string PackagePath,
-    string? PortraitPath);
+    string TarballPath,
+    string? PortraitPath,
+    string ModId,
+    IReadOnlyList<string> Dependencies);
 
 [JsonConverter(typeof(JsonStringEnumConverter<ImportStatus>))]
 public enum ImportStatus { Added, Updated, Unchanged }
@@ -28,6 +32,7 @@ public sealed record ImportResult(string Name, ImportStatus Status, string? Vers
 /// <code>
 /// characters/&lt;Name&gt;/          the mod folder exactly as players get it
 /// packages/&lt;Name&gt;.zip         prebuilt download (contains the &lt;Name&gt;/ folder)
+/// packages/&lt;Name&gt;.tar.gz      the same for the Linux/macOS script (GNU tar can't open zips)
 /// packages/&lt;Name&gt;.info.json   upload time and original archive name
 /// packages/&lt;Name&gt;.portrait.*  the character's portrait, taken from the mod's .pck
 /// keys/                       ASP.NET data protection keys (survive container restarts)
@@ -209,10 +214,12 @@ public sealed class CharacterStore
         var content = ModFolder.ComputeContent(folder);
         var info = ReadInfo(name);
         var package = Path.Combine(_packagesDir, $"{name}.zip");
+        var tarball = Path.Combine(_packagesDir, $"{name}.tar.gz");
         var changed = false;
-        if (info?.Hash != content.Hash || !File.Exists(package))
+        if (info?.Hash != content.Hash || !File.Exists(package) || !File.Exists(tarball))
         {
             BuildPackage(folder, package);
+            BuildTarball(folder, tarball);
             info = new PackageInfo(content.Hash, info?.UploadedAt ?? Directory.GetLastWriteTimeUtc(folder), info?.Source);
             WriteInfo(name, info);
             changed = true;
@@ -236,7 +243,10 @@ public sealed class CharacterStore
             info.Source,
             new FileInfo(package).Length,
             package,
-            portrait);
+            tarball,
+            portrait,
+            manifest.Id ?? name,
+            manifest.Dependencies);
     }
 
     private string? ExtractPortrait(string folder, string name)
@@ -285,8 +295,34 @@ public sealed class CharacterStore
         File.Move(tmp, package, overwrite: true);
     }
 
+    private static void BuildTarball(string folder, string tarball)
+    {
+        const UnixFileMode fileMode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead;
+        const UnixFileMode directoryMode = fileMode | UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute;
+        var name = Path.GetFileName(folder);
+        var tmp = tarball + ".tmp";
+        using (var file = File.Create(tmp))
+        using (var gzip = new GZipStream(file, CompressionLevel.Optimal))
+        using (var tar = new TarWriter(gzip, TarEntryFormat.Gnu))
+        {
+            tar.WriteEntry(new GnuTarEntry(TarEntryType.Directory, name + "/") { Mode = directoryMode, ModificationTime = Directory.GetLastWriteTimeUtc(folder) });
+            foreach (var relative in ModFolder.EnumerateFiles(folder))
+            {
+                var path = Path.Combine(folder, relative);
+                using var input = File.OpenRead(path);
+                tar.WriteEntry(new GnuTarEntry(TarEntryType.RegularFile, $"{name}/{relative}")
+                {
+                    Mode = fileMode,
+                    ModificationTime = File.GetLastWriteTimeUtc(path),
+                    DataStream = input,
+                });
+            }
+        }
+        File.Move(tmp, tarball, overwrite: true);
+    }
+
     private static IEnumerable<string> PackageFileNames(string name) =>
-        [$"{name}.zip", $"{name}.info.json", .. PortraitExtensions.Select(ext => $"{name}.portrait{ext}")];
+        [$"{name}.zip", $"{name}.tar.gz", $"{name}.info.json", .. PortraitExtensions.Select(ext => $"{name}.portrait{ext}")];
 
     private string InfoPath(string name) => Path.Combine(_packagesDir, $"{name}.info.json");
 

@@ -1,0 +1,188 @@
+#!/bin/sh
+# ==========================================================================
+#  Slay the Spire character sync (Linux and macOS)
+#
+#  Downloads the latest version of every character shared on
+#      __SERVER_URL__
+#  into the folder this script is in. Put it in the game's "mods" folder
+#  (on macOS: SlayTheSpire2.app/Contents/MacOS/mods) and run it with
+#      sh __SCRIPT_NAME__
+#  Only characters that changed since the last run are downloaded. Folders
+#  that aren't on the server are left alone. Then it sorts the game's mod
+#  list the same way for everyone (other mods first, characters A-Z after
+#  them), so you can play together. This script updates itself from the
+#  server first.
+#
+#  Options:  force     re-download everything
+#            nosort    leave the game's mod list alone
+# ==========================================================================
+
+SERVER="__SERVER_URL__"
+MARKER="__MARKER__"
+GAME_ID=2868840
+
+FORCE=
+NOSORT=
+SELFUPDATED=
+for arg in "$@"; do
+    case "$arg" in
+        force) FORCE=1 ;;
+        nosort) NOSORT=1 ;;
+        selfupdated) SELFUPDATED=1 ;;
+    esac
+done
+
+# Work in the folder this script is in, wherever it's started from.
+case "$0" in
+    /*) SELF=$0 ;;
+    *) SELF=$(pwd)/$0 ;;
+esac
+if [ -f "$SELF" ]; then
+    cd "$(dirname "$SELF")" || exit 1
+else
+    SELF=
+fi
+
+for tool in curl tar; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "$tool was not found. Install it and run this again."
+        exit 1
+    fi
+done
+
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/sts-character-sync.XXXXXX") || exit 1
+trap 'rm -rf "$WORK"' EXIT
+trap 'exit 1' INT TERM
+
+# Update this script first. The running shell reads this file as it goes, so the
+# new version replaces it as a new file (mv) instead of being written into it.
+if [ -z "$SELFUPDATED" ] && [ -n "$SELF" ] \
+    && curl -fsL --retry 2 -o "$WORK/latest.sh" "$SERVER/__SCRIPT_NAME__" \
+    && ! cmp -s "$WORK/latest.sh" "$SELF"; then
+    echo "Updating this script to the latest version..."
+    if cp -p "$SELF" "$SELF.new" && cat "$WORK/latest.sh" > "$SELF.new" && mv -f "$SELF.new" "$SELF"; then
+        rm -rf "$WORK"
+        exec sh "$SELF" "$@" selfupdated
+    fi
+    rm -f "$SELF.new"
+fi
+
+echo "Slay the Spire character sync"
+echo "  server: $SERVER"
+echo "  folder: $(pwd)"
+echo
+
+if ! curl -fsSL --retry 2 -o "$WORK/manifest.txt" "$SERVER/api/manifest.txt"; then
+    echo "Could not get the character list from $SERVER"
+    exit 1
+fi
+
+# $1 = content hash on the server, $2 = character folder name
+sync_character() {
+    rm -rf "$2.sync-new" "$2.sync-old"
+    mkdir "$2.sync-new" || return 1
+    if ! curl -fSL --retry 2 -# -o "$WORK/package.tar.gz" "$SERVER/api/package/$1.tar.gz" </dev/null; then
+        rm -rf "$2.sync-new"
+        return 1
+    fi
+    # Unpacked next to the old folder, so swapping them is a rename.
+    if ! tar -xzf "$WORK/package.tar.gz" -C "$2.sync-new" </dev/null || [ ! -d "$2.sync-new/$2" ]; then
+        echo "    Could not extract $2.tar.gz"
+        rm -rf "$2.sync-new"
+        return 1
+    fi
+    printf '%s\n' "$1" > "$2.sync-new/$2/$MARKER"
+    if [ -d "$2" ] && ! mv "$2" "$2.sync-old"; then
+        echo "    Could not replace the \"$2\" folder."
+        rm -rf "$2.sync-new"
+        return 1
+    fi
+    if ! mv "$2.sync-new/$2" "$2"; then
+        [ -d "$2.sync-old" ] && mv "$2.sync-old" "$2"
+        rm -rf "$2.sync-new"
+        return 1
+    fi
+    rm -rf "$2.sync-new" "$2.sync-old"
+}
+
+TOTAL=0
+UPDATED=0
+CURRENT=0
+FAILED=0
+CR=$(printf '\r')
+while IFS='|' read -r hash name || [ -n "$name" ]; do
+    name=${name%"$CR"}
+    [ -n "$name" ] || continue
+    TOTAL=$((TOTAL + 1))
+    if [ -z "$FORCE" ] && [ -f "$name/$MARKER" ] && [ "$(cat "$name/$MARKER")" = "$hash" ]; then
+        echo "  up to date   $name"
+        CURRENT=$((CURRENT + 1))
+        continue
+    fi
+    echo "  downloading  $name"
+    if sync_character "$hash" "$name"; then
+        UPDATED=$((UPDATED + 1))
+    else
+        echo "    FAILED: $name"
+        FAILED=$((FAILED + 1))
+    fi
+done < "$WORK/manifest.txt"
+
+echo
+if [ "$TOTAL" -eq 0 ]; then
+    echo "There are no characters on the server yet."
+else
+    echo "Done: $UPDATED downloaded, $CURRENT already up to date, $FAILED failed."
+fi
+
+# $1 = a settings.save
+sort_one() {
+    if ! curl -fsS --retry 2 -H "Content-Type: application/octet-stream" --data-binary "@$1" -o "$WORK/settings.save" "$SERVER/api/sort-mods"; then
+        echo "Mod order: could not be sorted."
+    elif cmp -s "$WORK/settings.save" "$1"; then
+        echo "Mod order: already sorted."
+    elif cp -p "$1" "$1.bak" && cat "$WORK/settings.save" > "$1"; then
+        echo "Mod order: sorted. The previous order is in settings.save.bak next to it."
+    else
+        echo "Mod order: could not write $1"
+    fi
+}
+
+# The game loads mods in the order of the mod list in settings.save (one per
+# Steam account) and adds new mods at the end, but co-op needs everyone to have
+# the same order. The server sorts the list; only that part of the file changes.
+sort_mods() {
+    if [ "$FAILED" -gt 0 ]; then
+        echo "Mod order: not sorted, because not every character could be updated."
+        return
+    fi
+    # The game writes settings.save when it exits, which would undo the sorting.
+    if ps -A -o comm= 2>/dev/null | sed 's|.*/||' | grep -q '^SlayTheSpire2'; then
+        echo "Mod order: not sorted while Slay the Spire 2 is running. Close it and run this again."
+        return
+    fi
+    found=
+    # Linux, macOS, and the game running through Proton (relative to steamapps/common/<game>/mods).
+    for file in \
+        "${XDG_DATA_HOME:-$HOME/.local/share}"/SlayTheSpire2/steam/*/settings.save \
+        "$HOME/Library/Application Support/SlayTheSpire2"/steam/*/settings.save \
+        ../../../compatdata/"$GAME_ID"/pfx/drive_c/users/steamuser/AppData/Roaming/SlayTheSpire2/steam/*/settings.save
+    do
+        if [ -f "$file" ]; then
+            found=1
+            sort_one "$file"
+        fi
+    done
+    if [ -z "$found" ]; then
+        echo "Mod order: no Slay the Spire 2 settings found yet. Start the game once, then run this again."
+    fi
+}
+
+if [ -z "$NOSORT" ]; then
+    sort_mods
+fi
+
+if [ "$FAILED" -gt 0 ]; then
+    exit 1
+fi
+exit 0

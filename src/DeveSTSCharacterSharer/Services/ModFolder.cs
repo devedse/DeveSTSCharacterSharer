@@ -7,7 +7,10 @@ namespace DeveSTSCharacterSharer.Services;
 
 public sealed class UploadException(string message, Exception? inner = null) : Exception(message, inner);
 
-public sealed record ModManifest(string? Version, string? Author, string? Description);
+public sealed record ModManifest(string? Id, string? Version, string? Author, string? Description, IReadOnlyList<string> Dependencies)
+{
+    public static readonly ModManifest Empty = new(null, null, null, null, []);
+}
 
 public sealed record FolderContent(string Hash, long Size, IReadOnlyList<string> Files);
 
@@ -62,17 +65,32 @@ public static partial class ModFolder
             .FirstOrDefault(f => Path.GetFileNameWithoutExtension(f).Equals(name, StringComparison.OrdinalIgnoreCase));
         if (path == null)
         {
-            return new ModManifest(null, null, null);
+            return ModManifest.Empty;
         }
         try
         {
             using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
-            return new ModManifest(GetString(doc.RootElement, "version"), GetString(doc.RootElement, "author"), GetString(doc.RootElement, "description"));
+            var root = doc.RootElement;
+            return new ModManifest(GetString(root, "id"), GetString(root, "version"), GetString(root, "author"), GetString(root, "description"), GetDependencies(root));
         }
         catch (JsonException)
         {
-            return new ModManifest(null, null, null);
+            return ModManifest.Empty;
         }
+    }
+
+    /// <summary>"dependencies": ["BaseLib"] or [{ "id": "BaseLib", "min_version": "3.4.1" }].</summary>
+    private static IReadOnlyList<string> GetDependencies(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("dependencies", out var dependencies) || dependencies.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+        return dependencies.EnumerateArray()
+            .Select(d => d.ValueKind == JsonValueKind.String ? d.GetString() : GetString(d, "id"))
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!)
+            .ToList();
     }
 
     private static string? GetString(JsonElement root, string property)

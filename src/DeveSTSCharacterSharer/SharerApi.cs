@@ -1,9 +1,10 @@
+using System.Text.Json;
 using DeveSTSCharacterSharer.Services;
 using Microsoft.AspNetCore.Http.Features;
 
 namespace DeveSTSCharacterSharer;
 
-/// <summary>Plain HTTP endpoints, used by the sync script (and for uploading from a terminal).</summary>
+/// <summary>Plain HTTP endpoints, used by the sync scripts (and for uploading from a terminal).</summary>
 public static class SharerApi
 {
     public static void MapSharerApi(this WebApplication app)
@@ -15,10 +16,18 @@ public static class SharerApi
             return Results.Text(string.Concat(store.All.Select(c => $"{c.Hash}|{c.Name}\n")));
         });
 
-        app.MapGet("/api/package/{hash}", (string hash, CharacterStore store) =>
-            store.GetByHash(hash) is { } character
-                ? Results.File(character.PackagePath, "application/zip", $"{character.Name}.zip")
-                : Results.Text("This version is no longer available, run the sync again.", statusCode: 404));
+        // <hash> is the zip for the .cmd, <hash>.tar.gz the same for the .sh.
+        app.MapGet("/api/package/{file}", (string file, CharacterStore store) =>
+        {
+            var tarball = file.EndsWith(".tar.gz", StringComparison.Ordinal);
+            if (store.GetByHash(tarball ? file[..^7] : file) is not { } character)
+            {
+                return Results.Text("This version is no longer available, run the sync again.", statusCode: 404);
+            }
+            return tarball
+                ? Results.File(character.TarballPath, "application/gzip", $"{character.Name}.tar.gz")
+                : Results.File(character.PackagePath, "application/zip", $"{character.Name}.zip");
+        });
 
         app.MapGet("/download/{name}.zip", (string name, HttpContext context, CharacterStore store) =>
         {
@@ -43,7 +52,32 @@ public static class SharerApi
         app.MapGet("/" + SyncScript.FileName, (HttpContext context, SyncScript script, SharerOptions options) =>
         {
             context.Response.Headers.CacheControl = "no-store";
-            return Results.File(script.Render(ServerUrl(options, context.Request)), "application/octet-stream", SyncScript.FileName);
+            return Results.File(script.RenderCmd(ServerUrl(options, context.Request)), "application/octet-stream", SyncScript.FileName);
+        });
+
+        app.MapGet("/" + SyncScript.ShellFileName, (HttpContext context, SyncScript script, SharerOptions options) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            return Results.File(script.RenderShell(ServerUrl(options, context.Request)), "application/octet-stream", SyncScript.ShellFileName);
+        });
+
+        // The sync scripts send the game's settings.save and write back what they get: the same file
+        // with the mod list sorted (see ModOrder). Nothing is kept.
+        app.MapPost("/api/sort-mods", async (HttpContext context, CharacterStore store, SharerOptions options) =>
+        {
+            context.Features.Get<IHttpMaxRequestBodySizeFeature>()!.MaxRequestBodySize = 4 * 1024 * 1024;
+            using var body = new MemoryStream();
+            await context.Request.Body.CopyToAsync(body, context.RequestAborted);
+            // A mod counts as a character when its .pck has character art (what the page shows).
+            var shared = store.All.Select(c => new SharedMod(c.ModId, c.Dependencies, IsCharacter: c.PortraitPath != null)).ToList();
+            try
+            {
+                return Results.File(ModOrder.Sort(body.ToArray(), shared, options.ModLibraries), "application/octet-stream");
+            }
+            catch (JsonException)
+            {
+                return Results.Text("This is not a Slay the Spire 2 settings.save file.", statusCode: 400);
+            }
         });
 
         // The raw request body is the archive and the URL carries its name:

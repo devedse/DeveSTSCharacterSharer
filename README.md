@@ -9,9 +9,10 @@ A small Blazor Server app for sharing Slay the Spire 2 character mods with frien
 - **Upload**: drag a `.zip`, `.7z` or `.rar`, or a folder, onto the page. It's uploaded right away
   (no confirm step), only the mod folder is kept, and it replaces the previous version of that
   character.
-- **Download**: everyone grabs one `sts-character-sync.cmd`, drops it in their
-  `Slay the Spire 2\mods` folder and double-clicks it. It downloads only the characters that changed
-  since the last run.
+- **Download**: everyone grabs one `sts-character-sync.cmd` (or `sts-character-sync.sh` on Linux
+  and macOS), drops it in their `Slay the Spire 2\mods` folder and double-clicks it. It downloads
+  only the characters that changed since the last run, and puts the game's mod list in the same order
+  for everyone, so you can play together.
 
 ## Running it
 
@@ -46,6 +47,7 @@ Then open `http://<host>:8080`. Images are built for amd64 and arm64 on every pu
 |-----------------|---------|---------|
 | `PUBLIC_URL`    | (empty) | Address friends use to reach the server: a hostname or an IP, with or without port. Without `http://`/`https://`, IPs, `localhost` and dot-less names get `http://`, other hostnames `https://`. When empty, the address your browser used to open the page is used instead. |
 | `MAX_UPLOAD_MB` | `2048`  | Largest archive accepted. |
+| `MOD_LIBRARIES` | `BaseLib,STS2-RitsuLib,RitsuLib,ModConfig` | Mod ids that go at the top of everyone's mod list (comma separated). Whatever the shared mods depend on goes there too. See [The mod order](#the-mod-order). |
 | `DATA_DIR`      | `/data` | Where everything is stored inside the container. |
 
 The container runs as root, so files in `./data` are owned by root. To have them owned by your own
@@ -109,7 +111,8 @@ of characters. Each run it:
 1. downloads the character list with content hashes (`/api/manifest.txt`),
 2. compares each hash with the one it saved in `<Character>\.character-sync` (a hidden file) last
    time,
-3. downloads and unpacks only the characters that are new or changed, replacing the old folder.
+3. downloads and unpacks only the characters that are new or changed, replacing the old folder,
+4. sorts the game's mod list (see [The mod order](#the-mod-order)).
 
 Before that it updates itself: when the server has a newer version of the script, it replaces itself
 and restarts. (A running `.cmd` can't simply be overwritten, because cmd.exe keeps reading the file
@@ -121,8 +124,54 @@ from the server. If the game is still running, the old folder is locked; the scr
 untouched and reports the failure instead of leaving a half-deleted folder. Close the game and run
 it again.
 
-Options: `sts-character-sync.cmd force` re-downloads everything, `nopause` skips the 5 second wait at
-the end (useful for scheduled tasks).
+Options: `sts-character-sync.cmd force` re-downloads everything, `nosort` leaves the game's mod list
+alone, `nopause` skips the 5 second wait at the end (useful for scheduled tasks).
+
+### Linux and macOS
+
+`sts-character-sync.sh` does the same with `curl` and `tar`. Put it in the game's `mods` folder
+(on macOS that's inside the app: `SlayTheSpire2.app/Contents/MacOS/mods`) and run
+
+```sh
+sh sts-character-sync.sh
+```
+
+It works in the folder it's in, wherever it's started from. It downloads `.tar.gz` packages, because
+GNU tar can't open zip files and `unzip` isn't always installed. To update itself it moves the new
+version over the old file; the running shell keeps reading the old one, then starts the new one.
+Options: `force` and `nosort`.
+
+### The mod order
+
+The game loads mods in the order of `mod_settings.mod_list` in its `settings.save`, and adds mods it
+hasn't seen before at the end. Co-op only works when everyone loads the same mods in the same order,
+so friends who got the characters at different times can't join each other. After syncing, the
+script sends `settings.save` to the server (`POST /api/sort-mods`), which sends it back with the mod
+list sorted the same way for everyone:
+
+1. libraries: the `MOD_LIBRARIES` and whatever a shared mod depends on,
+2. all other mods that aren't characters: Workshop mods, mods only you have, and shared mods
+   without character art,
+3. the characters shared on the server.
+
+Each group is A-Z by mod id, ignoring case, and a mod's known dependencies come before it. A mod
+counts as a character when its `.pck` has character art (what the page shows as its portrait). Mods
+only some players have just slot in, they don't change the order of the others. Characters that
+were just downloaded are added to the list right away (copying how the other shared characters are
+listed), so the first launch already has the right order. Nothing is switched on or off.
+
+Only the mod list changes; the rest of the file stays byte for byte the same, and the server doesn't
+keep it. When the order changes, the previous file is kept as `settings.save.bak`. The script skips
+sorting while the game is running (the game writes `settings.save` when it exits) and when a
+character could not be updated. It looks for `settings.save` in:
+
+| OS      | Folder |
+|---------|--------|
+| Windows | `%APPDATA%\SlayTheSpire2\steam\<Steam id>\` |
+| Linux   | `~/.local/share/SlayTheSpire2/steam/<Steam id>/`, or inside Proton's `compatdata/2868840` when the game runs through Proton |
+| macOS   | `~/Library/Application Support/SlayTheSpire2/steam/<Steam id>/` |
+
+Players who arrange the order themselves (Better Mod Menu, LoadOrderManager) can use `nosort`.
 
 ## Data folder
 
@@ -130,6 +179,7 @@ the end (useful for scheduled tasks).
 data/
   characters/<Name>/         the mod folder exactly as players get it
   packages/<Name>.zip        prebuilt download
+  packages/<Name>.tar.gz     the same for the Linux/macOS script
   packages/<Name>.info.json  upload time and original archive name
   packages/<Name>.portrait.* portrait taken from the mod's .pck
   keys/                      ASP.NET data protection keys
@@ -144,7 +194,8 @@ picked up and packaged on start.
 There is no login. Anyone who can open the page can upload or remove characters, and a character
 contains a `.dll` that runs inside your friends' game. Only expose it to people you trust, or put
 authentication in front of the web page in your reverse proxy. Keep `/api/manifest.txt`,
-`/api/package/*` and `/sts-character-sync.cmd` reachable without it, because the script can't log in.
+`/api/package/*`, `/api/sort-mods`, `/sts-character-sync.cmd` and `/sts-character-sync.sh` reachable
+without it, because the scripts can't log in.
 
 ## Development
 
