@@ -161,7 +161,14 @@ check "settings.save is untouched" cmp -s "$SETTINGS" "$WORK/original.save"
 
 echo
 echo "=== the mod list isn't sorted while the game is running"
+# Stand-in for the game: a process called SlayTheSpire2. A copy of sleep, or a script where sleep is a
+# multi-call binary that picks the tool by its name (uutils on Ubuntu 26); Linux lists a script by its
+# own name.
 cp "$(command -v sleep)" "$WORK/SlayTheSpire2"
+if ! "$WORK/SlayTheSpire2" 0 2>/dev/null; then
+    printf '#!/bin/sh\nsleep 60\n' > "$WORK/SlayTheSpire2"
+    chmod +x "$WORK/SlayTheSpire2"
+fi
 "$WORK/SlayTheSpire2" 60 &
 GAME_PID=$!
 sleep 1
